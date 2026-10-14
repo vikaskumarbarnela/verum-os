@@ -1,0 +1,40 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  hosted:
+    name: hosted kernel (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: unit tests
+        run: python -m unittest discover -s tests -t . -v
+      - name: fuzz (short)
+        run: python -m tests.fuzz --iterations 3000 --seed 1
+      - name: demo runs end to end
+        run: python -m verum demo
+
+  metal:
+    name: bare-metal kernel (clang + nasm + lld)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm clang lld
+      - name: build verum.elf
+        run: python3 metal/build.py
+      - name: multiboot header present
+        run: |
+          python3 - <<'EOF'
+          data = open("metal/build/verum.elf", "rb").read()
+          assert b"\x02\xb0\xad\x1b" in data[:16384], "Multiboot header missing from the first 8 KiB of .text"
+          print("ok:", len(data) // 1024, "KiB")
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verum.elf
+          path: metal/build/verum.elf

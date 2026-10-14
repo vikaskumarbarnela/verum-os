@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>VERUM OS Architecture</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a fixed left rail of contents on wide screens, one reading column (~68ch) with
+   full-width figures; blueprint palette - cool slate neutrals, one verdigris accent. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2230;
+  --muted: #5b6678;
+  --line: #d6dbe3;
+  --accent: #0f7b78;
+  --accent-soft: #dff1ef;
+  --warn: #9a5b00;
+  --warn-soft: #fff1d6;
+  --bad: #a32d2d;
+  --bad-soft: #fde3e3;
+  --code-bg: #eef1f5;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141c; --surface: #161c26; --fg: #e4e8ee; --muted: #9aa5b6; --line: #2a3340;
+    --accent: #4fc3bd; --accent-soft: #10302f; --warn: #e8b35a; --warn-soft: #3a2b10;
+    --bad: #f08a8a; --bad-soft: #3d1a1a; --code-bg: #1c2430; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141c; --surface: #161c26; --fg: #e4e8ee; --muted: #9aa5b6; --line: #2a3340;
+  --accent: #4fc3bd; --accent-soft: #10302f; --warn: #e8b35a; --warn-soft: #3a2b10;
+  --bad: #f08a8a; --bad-soft: #3d1a1a; --code-bg: #1c2430; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.6; margin: 0; }
+.wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px; max-width: 1180px; margin: 0 auto; padding-block: 32px 80px; padding-inline: 20px; }
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-right: 8px; font-size: 13.5px; }
+nav.toc .eyebrow { margin-bottom: 8px; }
+nav.toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+nav.toc a { color: var(--muted); text-decoration: none; display: block; padding: 3px 8px; border-left: 2px solid var(--line); }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--fg); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; }
+.eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 6px 0 12px; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1.15; margin: 64px 0 12px; text-wrap: balance; padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-family: var(--body); font-weight: 600; font-size: 18px; margin: 32px 0 8px; }
+h4 { font-size: 15px; font-weight: 600; margin: 20px 0 6px; }
+p, li { max-width: 68ch; }
+.lede { font-size: 19px; color: var(--muted); max-width: 60ch; margin: 0 0 24px; }
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: .9em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+pre { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; overflow-x: auto; max-width: 100%; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.k { color: var(--accent); }
+.c { color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+.tablewrap { overflow-x: auto; max-width: 100%; margin: 12px 0 20px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; font-size: 13px; color: var(--muted); letter-spacing: .02em; }
+td code { white-space: nowrap; }
+figure { margin: 24px 0 32px; }
+figure svg { max-width: 100%; height: auto; display: block; font-family: var(--body); font-size: 12px; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; max-width: 68ch; }
+.figwrap { overflow-x: auto; max-width: 100%; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 20px 0 8px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; }
+.rule .n { font-family: var(--mono); color: var(--accent); font-size: 12px; letter-spacing: .1em; }
+.rule h3 { margin: 4px 0 6px; font-size: 17px; }
+.rule p { font-size: 14px; color: var(--muted); margin: 0; }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 16px 0; font-size: 15px; }
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.callout.bad { border-color: var(--bad); background: var(--bad-soft); }
+.tree { font-family: var(--mono); font-size: 13px; line-height: 1.7; }
+.tree .d { color: var(--muted); }
+.pill { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; vertical-align: middle; }
+.pill.py { color: var(--accent); border-color: var(--accent); }
+dl.cmds { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; max-width: 100%; font-size: 14.5px; }
+dl.cmds dt { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+dl.cmds dd { margin: 0; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.meta { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: 1fr; gap: 24px; padding-inline: 16px; }
+  nav.toc { position: static; max-height: none; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  dl.cmds { grid-template-columns: 1fr; gap: 2px; }
+  dl.cmds dd { margin-bottom: 8px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <div class="eyebrow">Contents</div>
+  <ol>
+    <li><a href="#overview">1. What VERUM is</a></li>
+    <li><a href="#rules">2. The four rules</a></li>
+    <li><a href="#layers">3. System architecture</a></li>
+    <li><a href="#files">4. File map</a></li>
+    <li><a href="#boot">5. Flow: boot</a></li>
+    <li><a href="#message">6. Flow: a message through the system</a></li>
+    <li><a href="#syscall">7. Flow: the syscall gate</a></li>
+    <li><a href="#caps">8. Flow: capability lifecycle</a></li>
+    <li><a href="#data">9. Data model: objects and ledger</a></li>
+    <li><a href="#vm">10. The Verum Script VM</a></li>
+    <li><a href="#attacks">11. How attacks fail</a></li>
+    <li><a href="#usage">12. How to use</a></li>
+    <li><a href="#shell">13. Shell reference</a></li>
+    <li><a href="#lang">14. Language reference</a></li>
+    <li><a href="#cells">15. Writing a cell</a></li>
+    <li><a href="#compare">16. Python vs bare metal</a></li>
+    <li><a href="#limits">17. Limits and next steps</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow">System documentation · v0.1</div>
+<h1>VERUM OS Architecture</h1>
+<p class="lede">How a capability-secured, content-addressed, ledger-driven operating system works, file by file, with the flow of control drawn out.</p>
+<p class="meta">Two implementations of one design: <code>verum/</code> (hosted, Python 3.10+) and <code>metal/</code> (bare-metal x86, C, boots in QEMU). Project root: <code>D:\OS system</code>.</p>
+
+<!-- ============================================================ 1 -->
+<h2 id="overview">1. What VERUM is</h2>
+<p>VERUM is an operating system built from four decisions that Windows, macOS/iOS, Android and Linux all made the other way. Each decision removes a whole class of attacks by construction rather than by patching, and each one also makes work on the system reproducible, traceable and undoable.</p>
+<p>The design is small enough to hold in your head: a <strong>store</strong> of immutable objects named by their content, a <strong>ledger</strong> that records every change, a <strong>capability table</strong> that is the only source of authority, a <strong>virtual machine</strong> that is the only thing programs may run in, and a <strong>kernel</strong> that moves messages between programs (called <em>cells</em>) and checks every request against the capability table. A <strong>shell</strong> is the human's seat: it holds capabilities like any other principal and issues intents.</p>
+<div class="callout">There is no root user, no file path, no process, and no native code anywhere in the system. If you are looking for those, this document explains what replaced them and why.</div>
+
+<!-- ============================================================ 2 -->
+<h2 id="rules">2. The four rules</h2>
+<div class="rules">
+  <div class="rule"><div class="n">RULE 1</div><h3>No files, no paths</h3><p>Every object is immutable and named by the SHA-256 of its content. You find things by tag or by provenance, never by location. Changing a byte changes the name, so nothing can be silently tampered with and nothing can be overwritten.</p></div>
+  <div class="rule"><div class="n">RULE 2</div><h3>No root, no users: capabilities</h3><p>A principal can do exactly what the unforgeable tokens it holds allow. Tokens are narrowed when passed on, never widened, and revoking one revokes everything derived from it. There is no privilege to escalate into.</p></div>
+  <div class="rule"><div class="n">RULE 3</div><h3>No apps, no processes: cells</h3><p>A cell runs only Verum Script inside a kernel-owned interpreter with a CPU budget (fuel), a memory budget and a depth budget. It has no memory between messages and exactly one door to the world: <code>(call &lt;cap&gt; "op" …)</code>.</p></div>
+  <div class="rule"><div class="n">RULE 4</div><h3>The ledger is the system</h3><p>Every change is an event in a hash-chained log. Booting is replaying the log. <code>verify</code> proves nobody edited history; <code>rewind N</code> forks the whole system at entry N.</p></div>
+</div>
+<div class="tablewrap"><table>
+<thead><tr><th>Conventional OS</th><th>VERUM</th><th>Attack class removed</th></tr></thead>
+<tbody>
+<tr><td>Files in folders, edited in place</td><td>Content-addressed immutable objects with provenance</td><td>Tampering, ransomware, "which version is this?"</td></tr>
+<tr><td><code>root</code> / Administrator, permission bits</td><td>Capability tokens only; attenuate and revoke</td><td>Privilege escalation, confused deputy, over-broad app permissions</td></tr>
+<tr><td>Native processes with ambient machine access</td><td>Cells in a budgeted interpreter, one syscall primitive</td><td>Memory corruption, syscall abuse, fork bombs, exfiltration</td></tr>
+<tr><td>Mutable state, editable logs</td><td>Hash-chained event ledger, replay, fork</td><td>Log tampering, rootkits, irreversible mistakes</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ 3 -->
+<h2 id="layers">3. System architecture</h2>
+<p>The system is five layers. Each layer talks only to the one below it, and every arrow that crosses from a cell toward the kernel passes through one function: the syscall gate.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 470" role="img" aria-label="Five layers from hardware up to the human, with the syscall gate as the single crossing between cells and the kernel" style="color: var(--fg);">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+  </defs>
+  <g font-size="12" fill="currentColor">
+    <!-- Layer 5 human -->
+    <rect x="40" y="20" width="680" height="54" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <text x="56" y="42" font-weight="600">HUMAN  ·  shell.py / shell.c</text>
+    <text x="56" y="61" fill="var(--muted)">a principal that holds capabilities and states intents: note, spawn, grant, send, run, why, verify, rewind</text>
+    <!-- Layer 4 kernel -->
+    <rect x="40" y="100" width="680" height="96" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <text x="56" y="122" font-weight="600">KERNEL  ·  kernel.py / kernel.c</text>
+    <rect x="56" y="134" width="150" height="48" rx="3" fill="none" stroke="currentColor" stroke-width="1"/><text x="131" y="154" text-anchor="middle">cells + inboxes</text><text x="131" y="170" text-anchor="middle" fill="var(--muted)">spawn · send · kill</text>
+    <rect x="222" y="134" width="150" height="48" rx="3" fill="none" stroke="currentColor" stroke-width="1"/><text x="297" y="154" text-anchor="middle">scheduler</text><text x="297" y="170" text-anchor="middle" fill="var(--muted)">run · tick · fuel</text>
+    <rect x="388" y="134" width="150" height="48" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text x="463" y="154" text-anchor="middle" font-weight="600" fill="var(--accent)">syscall gate</text><text x="463" y="170" text-anchor="middle" fill="var(--muted)">cap_check on every call</text>
+    <rect x="554" y="134" width="150" height="48" rx="3" fill="none" stroke="currentColor" stroke-width="1"/><text x="629" y="154" text-anchor="middle">event sourcing</text><text x="629" y="170" text-anchor="middle" fill="var(--muted)">record · replay · fork</text>
+    <!-- Layer 3 VM -->
+    <rect x="40" y="222" width="680" height="54" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <text x="56" y="244" font-weight="600">VIRTUAL MACHINE  ·  vm.py / vs.c</text>
+    <text x="56" y="263" fill="var(--muted)">Verum Script reader + evaluator · fuel, size and depth budgets · (call cap "op" …) is the only effect</text>
+    <!-- Layer 2 -->
+    <rect x="40" y="302" width="332" height="70" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <text x="56" y="324" font-weight="600">STORE + LEDGER  ·  store.py / store.c</text>
+    <text x="56" y="343" fill="var(--muted)">objects by SHA-256, tags, provenance</text>
+    <text x="56" y="360" fill="var(--muted)">hash-chained append-only event log</text>
+    <rect x="388" y="302" width="332" height="70" rx="4" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <text x="404" y="324" font-weight="600">CAPABILITIES  ·  caps.py / caps.c</text>
+    <text x="404" y="343" fill="var(--muted)">mint · attenuate · revoke · check</text>
+    <text x="404" y="360" fill="var(--muted)">token + kind + rights + holder + target</text>
+    <!-- Layer 1 -->
+    <rect x="40" y="398" width="680" height="54" rx="4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="56" y="420" font-weight="600">HOST / HARDWARE</text>
+    <text x="56" y="439" fill="var(--muted)">Python runtime + JSONL file (hosted)   ·   boot.asm + lib.c: VGA text, PS/2 keyboard, bump heap, SHA-256 (bare metal)</text>
+    <!-- arrows -->
+    <line x1="380" y1="74" x2="380" y2="100" stroke="currentColor" marker-end="url(#arr)"/><text x="388" y="92" fill="var(--muted)">intents</text>
+    <line x1="463" y1="222" x2="463" y2="182" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arr)"/><text x="471" y="208" fill="var(--accent)">(call …)</text>
+    <line x1="206" y1="276" x2="206" y2="302" stroke="currentColor" marker-end="url(#arr)"/><text x="214" y="294" fill="var(--muted)">store ops after the gate</text>
+    <line x1="554" y1="276" x2="554" y2="302" stroke="currentColor" marker-end="url(#arr)"/><text x="562" y="294" fill="var(--muted)">cap_check</text>
+    <line x1="380" y1="372" x2="380" y2="398" stroke="currentColor" marker-end="url(#arr)"/>
+  </g>
+</svg>
+</div>
+<figcaption>Layers of VERUM. The shell and the cells are both principals above the kernel; only the kernel touches the store, the ledger and the capability table, and a cell reaches the kernel through one function.</figcaption>
+</figure>
+
+<h3>Principals</h3>
+<p>Anything that can hold a capability is a principal. There are two kinds: <strong>seats</strong> (humans; the one named <code>shell</code> is seated at genesis with a store, console, clock and kernel capability, and further seats start with nothing) and <strong>cells</strong> (programs, also born with nothing). The kernel is not a principal; it is the referee. On bare metal the shell shows the active seat in its prompt and <code>switch</code> changes it; every intent is then checked against that seat's capabilities.</p>
+
+<!-- ============================================================ 4 -->
+<h2 id="files">4. File map</h2>
+<p>Everything lives under <code>D:\OS system</code>. The Python implementation is the reference; the C implementation is the same design with no operating system beneath it.</p>
+<pre class="tree">D:\OS system\
+├── README.md                    <span class="d">design summary, quick start, limits</span>
+├── .gitignore                   <span class="d">state/, state-fork*/, metal/build/</span>
+├── docs\VERUM-Architecture.html <span class="d">this document</span>
+│
+├── verum\                       <span class="d">hosted kernel (Python)</span>
+│   ├── __init__.py              <span class="d">package docstring, version</span>
+│   ├── __main__.py              <span class="d">entry: python -m verum [demo|&lt;state dir&gt;]</span>
+│   ├── store.py                 <span class="d">Obj, Store (content-addressed), Ledger (hash chain, JSONL)</span>
+│   ├── caps.py                  <span class="d">Cap, CapTable: mint / attenuate / revoke / check</span>
+│   ├── vm.py                    <span class="d">Verum Script: tokenizer, parser, Interp, builtins, budgets</span>
+│   ├── kernel.py                <span class="d">Kernel: cells, grant/link/send, syscall gate, scheduler, replay, fork</span>
+│   └── shell.py                 <span class="d">Shell: intent commands, consent display, REPL</span>
+│
+├── cells\                       <span class="d">cell programs in Verum Script (.vs)</span>
+│   ├── wordcount.vs             <span class="d">note hash → stats object, with provenance</span>
+│   ├── shout.vs                 <span class="d">upper-case a note, forward hash to `next`</span>
+│   └── malware.vs               <span class="d">hostile cell: five attacks, all contained</span>
+│
+├── tests\
+│   ├── __init__.py
+│   └── test_verum.py            <span class="d">17 tests: store, caps, malware, workflow, time travel, VM</span>
+│
+├── state\                       <span class="d">created on first run: ledger.jsonl (the whole system)</span>
+│
+└── metal\                       <span class="d">bare-metal kernel (x86, 32-bit)</span>
+    ├── boot.asm                 <span class="d">Multiboot header, GDT, 1 MiB stack, _start, 48 interrupt stubs, ctx_switch, vs_setjmp/vs_longjmp</span>
+    ├── linker.ld                <span class="d">kernel at 1 MiB; _end marks where the heap starts</span>
+    ├── build.py                 <span class="d">nasm + clang + ld.lld; creates build/verum.img; `run` boots QEMU; `test` boots, reboots, rewinds, dumps screens</span>
+    ├── ppm2png.py               <span class="d">converts QEMU screendumps to PNG (stdlib only)</span>
+    ├── build\                   <span class="d">verum.elf, *.o, screenshots (ignored by git)</span>
+    └── kernel\
+        ├── lib.h / lib.c        <span class="d">freestanding runtime: heap + arenas, strings, VGA + status bar, keyboard, ATA disk, SHA-256</span>
+        ├── vs.h  / vs.c         <span class="d">Verum Script VM in C (same semantics as vm.py)</span>
+        ├── verum.h              <span class="d">kernel-wide types and API: Obj, Entry, Cap, Cell</span>
+        ├── store.c              <span class="d">object store + ledger (RAM mirror; writes through to disk)</span>
+        ├── disk.c               <span class="d">the ledger on disk: header sector, ledger stream, attic stream (rewound branches)</span>
+        ├── irq.c                <span class="d">GDT/IDT, PIC, PIT 100 Hz, keyboard IRQ, exception panel, time-slice preemption</span>
+        ├── caps.c               <span class="d">capability table</span>
+        ├── kernel.c             <span class="d">seats, cells, syscall gate (incl. delegate), preemptive scheduler + per-cell stacks and arenas, event recording, replay, rewind, attic</span>
+        ├── cells.c              <span class="d">cell programs embedded in the image (no filesystem exists)</span>
+        ├── shell.c              <span class="d">the human's seat: intents, seats/switch, history, rewind, attic/restore, dash, demo</span>
+        └── kmain.c              <span class="d">entry from boot.asm: vga_init → irq_init → kernel_boot → shell_main</span></pre>
+
+<h3>What each file does, in detail</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>File</th><th>Responsibility</th><th>Key names</th></tr></thead>
+<tbody>
+<tr><td><code>verum/store.py</code></td><td>Defines the immutable object and the two indexes over it (by hash, by tag), plus the ledger. <code>canonical()</code> gives one JSON encoding per value so identical content always hashes identically. <code>Ledger.append</code> hashes each event together with the previous entry's hash; <code>verify</code> walks the chain; <code>load</code> reads JSONL back.</td><td><code>Obj</code>, <code>Store.put/get/find/lineage/resolve</code>, <code>Ledger.append/verify/load</code>, <code>digest</code></td></tr>
+<tr><td><code>verum/caps.py</code></td><td>The only source of authority. <code>RIGHTS</code> fixes which operations exist per kind; <code>delegate</code> is valid on every kind but <code>kernel</code>. <code>mint</code> creates a random 128-bit token; <code>attenuate</code> derives a narrower cap for a new holder (refuses any right the source lacks); <code>revoke</code> marks a cap and all descendants; <code>check</code> is called on every syscall and verifies existence, revocation, holder and right.</td><td><code>Cap</code>, <code>CapTable</code>, <code>CapError</code>, <code>RIGHTS</code></td></tr>
+<tr><td><code>verum/vm.py</code></td><td>The language cells run in. A tokenizer and s-expression parser, an <code>Env</code> chain, closures, 40-odd builtins that touch only plain values, and an <code>Interp</code> that counts every evaluation step against a fuel budget. <code>CapHandle</code> is the opaque value a cell holds; its token is never printable. <code>sf_call</code> is the single primitive with side effects, and it hands control to a syscall function the kernel supplies.</td><td><code>parse</code>, <code>Interp.eval/apply</code>, <code>Closure</code>, <code>CapHandle</code>, <code>new_env</code>, <code>load_module</code>, <code>MAX_SIZE</code>, <code>MAX_DEPTH</code></td></tr>
+<tr><td><code>verum/kernel.py</code></td><td>Ties the parts together. Owns the store, ledger, cap table and cells. Every mutating method records an event; <code>_apply</code> replays events on boot; <code>fork</code> replays a prefix into a new kernel. <code>syscall</code> is the gate: it calls <code>caps.check</code> then dispatches by kind. <code>run</code> is a cooperative round-robin scheduler: one message per cell per tick, each inside a fresh interpreter with the cell's fuel.</td><td><code>Kernel</code>, <code>Cell</code>, <code>put/spawn/grant/mint_cell_cap/revoke/send/run/syscall/fork</code>, <code>SHELL</code></td></tr>
+<tr><td><code>verum/shell.py</code></td><td>Translates human intents into kernel calls and shows what happened. It resolves short hash prefixes, binds granted caps to labels, prints which capabilities an <code>eval</code> used, renders the ledger and provenance trees, and implements <code>rewind</code> by swapping in a forked kernel.</td><td><code>Shell.do</code>, <code>cmd_*</code>, <code>repl</code></td></tr>
+<tr><td><code>verum/__main__.py</code></td><td>Entry point. <code>demo</code> runs a scripted tour in a temp directory; otherwise opens the REPL with state in <code>./state</code> (or a given directory).</td><td><code>DEMO</code>, <code>demo()</code>, <code>main()</code></td></tr>
+<tr><td><code>metal/boot.asm</code></td><td>The first code to run. Declares the Multiboot 1 header the loader scans for, installs a flat GDT (the loader's is not guaranteed), reserves a 1 MiB stack, pushes the Multiboot magic and info pointer, and calls <code>kmain</code>. Holds the 48 interrupt stubs (32 CPU exceptions + 16 IRQs) that build a <code>Regs</code> frame and call <code>isr_handler</code>, <code>idt_load</code>, and <code>ctx_switch</code>, the 12-instruction stack switch the scheduler uses to pause and resume cells. Also implements <code>vs_setjmp</code>/<code>vs_longjmp</code> because there is no libc; the VM uses them to abort a misbehaving cell.</td><td><code>_start</code>, <code>isr0…isr47</code>, <code>isr_common</code>, <code>idt_load</code>, <code>ctx_switch</code>, <code>vs_setjmp</code>, <code>vs_longjmp</code></td></tr>
+<tr><td><code>metal/linker.ld</code></td><td>Places the image at 1 MiB with the Multiboot header first in <code>.text</code>, and exports <code>_end</code> so the heap can begin right after <code>.bss</code>.</td><td><code>_end</code></td></tr>
+<tr><td><code>metal/kernel/lib.c</code></td><td>Everything a freestanding kernel needs and would normally get from an OS: a bump allocator over 112 MiB after <code>_end</code> that serves either the persistent heap or the running cell's arena (<code>heap_arena_use</code>, <code>heap_persist_begin/end</code>), <code>memcpy</code>/<code>strlen</code>/<code>itoa</code>, a VGA text driver (80×25 at <code>0xB8000</code>; row 0 is reserved for the status bar, rows 1–24 scroll), a polled PS/2 keyboard driver (port <code>0x60</code>, scancode set 1 with shift), an ATA PIO disk driver (primary master, LBA28, ports <code>0x1F0–0x1F7</code>, read/write/flush one sector at a time), <code>kprintf</code>, SHA-256, and <code>panic</code>.</td><td><code>kalloc</code>, <code>vga_*</code>, <code>vga_status</code>, <code>kbd_getc/readline</code>, <code>ata_present/read/write</code>, <code>sha256</code>, <code>panic</code></td></tr>
+<tr><td><code>metal/kernel/vs.c</code></td><td>The VM in C. Tagged <code>Val</code> union (nil, bool, int, string, symbol, list, dict, closure, builtin, cap), a reader, an evaluator with the same special forms as <code>vm.py</code>, and the same budgets. <code>burn()</code> also checks the timer's <code>vm_preempt</code> flag on every step and calls <code>task_yield()</code> when it is set, which is how a cell is paused mid-message without the VM knowing anything about stacks. Small integers (0–4095) are preboxed singletons so loops and sums do not allocate. Errors are raised by <code>vs_error</code>, which longjmps back to <code>vs_run</code>/<code>vs_call</code>, so a bad cell never unwinds through the kernel.</td><td><code>vs_parse</code>, <code>vs_eval</code>, <code>vs_apply</code>, <code>vs_run</code>, <code>vs_call</code>, <code>env_builtins</code></td></tr>
+<tr><td><code>metal/kernel/store.c</code></td><td>Fixed-size tables (512 objects, 2048 ledger entries) in RAM. Object hash is SHA-256 over <code>kind|data|tags|by|op|inputs|tick</code> with data in canonical form; ledger hash is SHA-256 over <code>seq|prev|text</code>. <code>ledger_append</code> keeps the event text, extends the chain and, unless the kernel is loading from disk, writes the line through to <code>disk_append</code>.</td><td><code>store_put/get/find/resolve/find_code/reset</code>, <code>ledger_append/verify/reset</code>, <code>ledger_set_loading</code></td></tr>
+<tr><td><code>metal/kernel/irq.c</code></td><td>Interrupts. Fills the IDT with the 48 stubs, remaps the PIC to vectors 32–47, programs the PIT for 100 Hz and enables interrupts. IRQ0 increments <code>uptime_ticks</code> and, when the running cell's deadline has passed, sets <code>vm_preempt</code>; IRQ1 pushes raw scancodes into a ring that <code>kbd_scancode</code> drains, halting the CPU while it is empty. Vectors 0–31 print a red register panel (with <code>cr2</code> for page faults) and halt.</td><td><code>irq_init</code>, <code>isr_handler</code>, <code>kbd_scancode</code>, <code>uptime_ms</code>, <code>uptime_ticks</code>, <code>vm_deadline</code>, <code>vm_preempt</code></td></tr>
+<tr><td><code>metal/kernel/disk.c</code></td><td>The persistence layer. Sector 0 holds the magic <code>VERUMLD2</code> and the byte length and count of two streams: the <em>ledger</em> (sectors 1–8191) and the <em>attic</em> (sectors 8192–16383), where <code>rewind</code> parks the entries it cuts off, each branch introduced by a <code>branch|from|count|uptime</code> line. Appending to either stream rewrites the last partial sector, any new sectors and the header. Truncating the ledger rewrites only the header. A blank image is formatted on first boot; a v1 image is migrated with an empty attic.</td><td><code>disk_init/present/entries/bytes</code>, <code>disk_read_all</code>, <code>disk_append</code>, <code>disk_truncate</code>, <code>disk_attic_append/read_all/branches</code></td></tr>
+<tr><td><code>metal/kernel/caps.c</code></td><td>Capability table with rights as bit flags. Tokens come from SHA-256 of the cycle counter, heap state and a counter. <code>cap_revoke</code> walks parent links to revoke a subtree.</td><td><code>cap_mint/attenuate/revoke/check</code>, <code>cap_parse_rights</code>, <code>cap_describe</code></td></tr>
+<tr><td><code>metal/kernel/kernel.c</code></td><td>Seats (named human principals, 8 max, one capability slot per kind), cells (12 max, 16-message ring inbox), genesis, grant/link/send, the syscall gate including <code>delegate</code>, the scheduler, and event sourcing. Every public operation builds a <code>|</code>-separated event line (data serialized as Verum Script so the VM's own reader parses it back) and records it; <code>apply()</code> replays one line into memory; <code>kernel_boot</code> replays the disk; <code>kernel_rewind</code> copies the tail to the attic, rebuilds from the first N lines and shortens the disk ledger; <code>attic_restore</code> re-applies a branch when the ledger is back at its start. Operations that need authority (<code>spawn</code>, <code>link</code>, <code>seat</code>) check the active seat's kernel capability. The scheduler gives every cell with work its own 512 KiB kernel stack and an 8 MiB arena; <code>kernel_run</code> hands out time slices with <code>ctx_switch</code>, <code>task_yield</code> returns to it, and <code>task_entry</code> drains a cell's inbox one message at a time, resetting the arena per message.</td><td><code>kernel_boot</code>, <code>kernel_put</code>, <code>seat_create/find</code>, <code>k_me</code>, <code>my_cap</code>, <code>i_may</code>, <code>cell_spawn/link/send</code>, <code>kernel_grant</code>, <code>kernel_revoke</code>, <code>kernel_syscall</code>, <code>kernel_run</code>, <code>kernel_rewind</code>, <code>attic_list/restore</code></td></tr>
+<tr><td><code>metal/kernel/cells.c</code></td><td>Verum Script sources for <code>wordcount</code>, <code>shout</code>, <code>malware</code> and <code>echo</code> as C strings. At genesis they are put into the store as <code>code</code> objects, tagged with their names.</td><td><code>BUILTIN_CELLS</code></td></tr>
+<tr><td><code>metal/kernel/shell.c</code></td><td>Line reader, argument splitter, every intent, the scripted <code>demo</code>, and the small UI: a status bar (active seat, counts, uptime, disk and attic) refreshed after every command, <code>history</code> as a numbered timeline, <code>rewind</code> with a preview and a typed <code>yes</code>, <code>attic</code>/<code>restore</code>, <code>seat</code>/<code>switch</code>/<code>whoami</code>/<code>seats</code>, and <code>dash</code>, a full-screen panel of cells, ledger tail, store totals and disk status. The prompt shows the active seat's name; every intent is checked against that seat's capabilities. VGA colours separate the human's prompt, cell output and kernel refusals.</td><td><code>shell_main</code>, <code>dispatch</code>, <code>status</code>, <code>dash</code>, <code>summarize</code>, <code>demo</code></td></tr>
+<tr><td><code>metal/build.py</code></td><td>Builds with <code>clang --target=i386-elf</code> and <code>ld.lld</code> (no cross-GCC needed), assembles with NASM, creates the 8 MiB raw disk image and boots QEMU with <code>-kernel</code> plus <code>-drive … if=ide</code>. <code>test</code> drives the QEMU monitor over stdin: types a script with <code>sendkey</code>, kills and restarts QEMU at <code>@reboot</code> so only the disk carries state, and takes <code>screendump</code>s at checkpoints.</td><td><code>build()</code>, <code>ensure_disk()</code>, <code>test()</code>, <code>SCRIPT</code>, <code>KEYS</code></td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ 5 -->
+<h2 id="boot">5. Flow: boot</h2>
+<p>Both implementations boot the same way in spirit: establish the runtime, seat the shell with its genesis capabilities, then either replay the ledger (hosted) or load the embedded code objects (bare metal), and drop into the shell.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 330" role="img" aria-label="Boot sequence for bare metal and hosted, converging on the shell loop" style="color: var(--fg);">
+  <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <text x="20" y="22" font-weight="600" fill="var(--muted)">BARE METAL (metal/)</text>
+    <rect x="20" y="34" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="85" y="52" text-anchor="middle">QEMU / BIOS</text><text x="85" y="68" text-anchor="middle" fill="var(--muted)">finds Multiboot header</text>
+    <line x1="150" y1="56" x2="178" y2="56" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="180" y="34" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="245" y="52" text-anchor="middle">_start (boot.asm)</text><text x="245" y="68" text-anchor="middle" fill="var(--muted)">cli · lgdt · esp=stack_top</text>
+    <line x1="310" y1="56" x2="338" y2="56" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="340" y="34" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="405" y="52" text-anchor="middle">kmain (kmain.c)</text><text x="405" y="68" text-anchor="middle" fill="var(--muted)">check magic 0x2BADB002</text>
+    <line x1="470" y1="56" x2="498" y2="56" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="500" y="34" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="565" y="52" text-anchor="middle">vga_init · irq_init</text><text x="565" y="68" text-anchor="middle" fill="var(--muted)">screen · IDT · PIC · PIT · sti</text>
+    <line x1="565" y1="78" x2="565" y2="106" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="500" y="108" width="130" height="58" rx="3" fill="none" stroke="currentColor"/><text x="565" y="126" text-anchor="middle">kernel_boot</text><text x="565" y="141" text-anchor="middle" fill="var(--muted)">disk has entries? replay</text><text x="565" y="156" text-anchor="middle" fill="var(--muted)">else genesis + embedded code</text>
+
+    <text x="20" y="128" font-weight="600" fill="var(--muted)">HOSTED (verum/)</text>
+    <rect x="20" y="140" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="85" y="158" text-anchor="middle">python -m verum</text><text x="85" y="174" text-anchor="middle" fill="var(--muted)">__main__.main</text>
+    <line x1="150" y1="162" x2="178" y2="162" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="180" y="140" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="245" y="158" text-anchor="middle">Kernel(state_dir)</text><text x="245" y="174" text-anchor="middle" fill="var(--muted)">Ledger.load(ledger.jsonl)</text>
+    <line x1="310" y1="162" x2="338" y2="162" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="340" y="140" width="130" height="44" rx="3" fill="none" stroke="currentColor"/><text x="405" y="158" text-anchor="middle">entries?</text><text x="405" y="174" text-anchor="middle" fill="var(--muted)">yes: _replay · no: _genesis</text>
+    <line x1="470" y1="162" x2="498" y2="162" stroke="currentColor" marker-end="url(#arr2)"/>
+    <text x="405" y="206" text-anchor="middle" fill="var(--muted)">_replay applies each event with</text>
+    <text x="405" y="221" text-anchor="middle" fill="var(--muted)">_replaying=True, so nothing is re-recorded</text>
+
+    <line x1="565" y1="166" x2="565" y2="246" stroke="currentColor" marker-end="url(#arr2)"/>
+    <rect x="440" y="248" width="250" height="62" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+    <text x="565" y="270" text-anchor="middle" font-weight="600" fill="var(--accent)">shell loop</text>
+    <text x="565" y="287" text-anchor="middle" fill="var(--muted)">read a line → dispatch intent → print</text>
+    <text x="565" y="302" text-anchor="middle" fill="var(--muted)">kbd_readline (metal) · input() (hosted)</text>
+  </g>
+</svg>
+</div>
+<figcaption>Boot on both targets. Both rebuild all state by replaying their ledger: the hosted kernel from <code>ledger.jsonl</code>, the bare-metal kernel from the ATA disk (<code>kernel_boot</code> → <code>disk_init</code> → <code>disk_read_all</code> → replay). Only a blank disk, or no disk, leads to genesis.</figcaption>
+</figure>
+<h3>Genesis</h3>
+<p>Genesis is the one event that creates authority from nothing. The kernel mints four capabilities for the principal named <code>shell</code>, one per kind, each with the full right set of its kind: <code>store[get,put,find,lineage]</code>, <code>console[print]</code>, <code>clock[now]</code>, <code>kernel[spawn,mint,revoke,cells]</code>. No <code>cell</code> capability exists yet, because no cells exist. From this point on, every capability in the system is either one of these four or a descendant of one of them, which is why revocation can always find its way back to the root.</p>
+
+<!-- ============================================================ 6 -->
+<h2 id="message">6. Flow: a message through the system</h2>
+<p>Work in VERUM is message passing. The shell (or a cell holding a <code>cell</code> capability) queues a value into a cell's inbox; the scheduler later runs the cell's <code>on-message</code> handler on it. The figure follows the demo pipeline: a note goes to <code>shout</code>, which stores an upper-cased copy and forwards its hash to <code>wc</code>, which stores a <code>stats</code> object.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 420" role="img" aria-label="A note travels from the shell to the shout cell, which writes a new note and forwards it to the wordcount cell, which writes a stats object; each write is a ledger event" style="color: var(--fg);">
+  <defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <!-- lanes -->
+    <text x="20" y="40" font-weight="600">shell</text>
+    <text x="20" y="140" font-weight="600">kernel</text>
+    <text x="20" y="240" font-weight="600">cell: shout</text>
+    <text x="20" y="340" font-weight="600">cell: wc</text>
+    <line x1="100" y1="20" x2="740" y2="20" stroke="var(--line)"/>
+    <line x1="100" y1="120" x2="740" y2="120" stroke="var(--line)"/>
+    <line x1="100" y1="220" x2="740" y2="220" stroke="var(--line)"/>
+    <line x1="100" y1="320" x2="740" y2="320" stroke="var(--line)"/>
+
+    <rect x="110" y="34" width="130" height="40" rx="3" fill="none" stroke="currentColor"/><text x="175" y="51" text-anchor="middle">send shout @note</text><text x="175" y="66" text-anchor="middle" fill="var(--muted)">body = note hash</text>
+    <line x1="175" y1="74" x2="175" y2="132" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="110" y="134" width="130" height="40" rx="3" fill="none" stroke="currentColor"/><text x="175" y="151" text-anchor="middle">inbox[shout] += msg</text><text x="175" y="166" text-anchor="middle" fill="var(--muted)">ledger: send</text>
+
+    <rect x="270" y="34" width="90" height="40" rx="3" fill="none" stroke="currentColor"/><text x="315" y="58" text-anchor="middle">run</text>
+    <line x1="315" y1="74" x2="315" y2="132" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="270" y="134" width="130" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text x="335" y="151" text-anchor="middle" fill="var(--accent)" font-weight="600">tick 1</text><text x="335" y="166" text-anchor="middle" fill="var(--muted)">pop msg → run_cell(shout)</text>
+    <line x1="335" y1="174" x2="335" y2="232" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="270" y="234" width="170" height="56" rx="3" fill="none" stroke="currentColor"/><text x="355" y="251" text-anchor="middle">on-message from body</text><text x="355" y="266" text-anchor="middle" fill="var(--muted)">store.get · upper · store.put</text><text x="355" y="281" text-anchor="middle" fill="var(--muted)">next.send h   (fuel 59)</text>
+    <line x1="440" y1="262" x2="470" y2="262" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="472" y="234" width="120" height="56" rx="3" fill="none" stroke="currentColor"/><text x="532" y="251" text-anchor="middle">ledger: put note</text><text x="532" y="266" text-anchor="middle">ledger: send</text><text x="532" y="281" text-anchor="middle">ledger: ran ok</text>
+    <line x1="532" y1="234" x2="532" y2="176" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="472" y="134" width="130" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text x="537" y="151" text-anchor="middle" fill="var(--accent)" font-weight="600">tick 2</text><text x="537" y="166" text-anchor="middle" fill="var(--muted)">inbox[wc] has h → run_cell(wc)</text>
+    <line x1="537" y1="174" x2="537" y2="332" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="472" y="334" width="170" height="56" rx="3" fill="none" stroke="currentColor"/><text x="557" y="351" text-anchor="middle">on-message from h</text><text x="557" y="366" text-anchor="middle" fill="var(--muted)">store.get · split · console.print</text><text x="557" y="381" text-anchor="middle" fill="var(--muted)">store.put stats inputs=[h]  (fuel 83)</text>
+    <line x1="642" y1="362" x2="672" y2="362" stroke="currentColor" marker-end="url(#arr3)"/>
+    <rect x="674" y="334" width="66" height="56" rx="3" fill="none" stroke="currentColor"/><text x="707" y="351" text-anchor="middle">ledger:</text><text x="707" y="366" text-anchor="middle">put stats</text><text x="707" y="381" text-anchor="middle">ran ok</text>
+    <text x="640" y="60" fill="var(--muted)">then: find stats · why &lt;hash&gt;</text>
+  </g>
+</svg>
+</div>
+<figcaption>One message, two ticks. Each cell runs inside a fresh interpreter with its own fuel budget; every side effect becomes its own ledger event, so replay never needs to re-execute cell code.</figcaption>
+</figure>
+<h3>The scheduler</h3>
+<p><strong>Hosted:</strong> <code>run</code> loops while any cell has a pending message and the tick limit is not reached. Each tick, every cell with a non-empty inbox gets exactly one message, run to completion inside its fuel budget (50,000 steps; a syscall costs 10).</p>
+<p><strong>Bare metal:</strong> the scheduler is preemptive. Every cell with work gets its own kernel stack, and each <code>run</code> round hands every runnable cell a 50 ms slice. When the timer expires the slice it sets <code>vm_preempt</code>; the VM's <code>burn()</code> sees the flag at its next step and calls <code>task_yield()</code>, which <code>ctx_switch</code>es back to the scheduler with the cell's whole interpreter state left in place on its stack. The next slice resumes it exactly there. Because yielding only happens between VM steps, a syscall is never interleaved with another cell's: the ledger records effects in the order they truly happened, and replay (which never re-executes code) stays deterministic. Fuel is 2,000,000 steps per message; memory is bounded by the cell's arena (below).</p>
+<p>In both, when a handler raises, runs out of fuel, exceeds the size, memory or depth budget, the kernel prints <code>cell X stopped: reason</code>, counts an error for the cell, and records a <code>ran</code> event with <code>ok=false</code>. The kernel itself never stops. Cells are stateless between messages on purpose: the only memory is the store, so any run can be reproduced from its inputs.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 170" role="img" aria-label="Time-slice preemption: run_cell sets a deadline, the PIT interrupt at 100 Hz compares uptime to it and sets a flag, and the VM checks the flag on every evaluation step and aborts the run" style="color: var(--fg);">
+  <defs><marker id="arr9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <rect x="20" y="30" width="170" height="54" rx="3" fill="none" stroke="currentColor"/><text x="105" y="50" text-anchor="middle">kernel_run (kernel.c)</text><text x="105" y="66" text-anchor="middle" fill="var(--muted)">vm_deadline = now + 5 ticks</text><text x="105" y="80" text-anchor="middle" fill="var(--muted)">ctx_switch → cell's stack</text>
+    <line x1="190" y1="57" x2="218" y2="57" stroke="currentColor" marker-end="url(#arr9)"/>
+    <rect x="220" y="30" width="170" height="54" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text x="305" y="50" text-anchor="middle" fill="var(--accent)" font-weight="600">VM burn() every step</text><text x="305" y="66" text-anchor="middle" fill="var(--muted)">fuel &gt; budget? → fuel exhausted</text><text x="305" y="80" text-anchor="middle" fill="var(--muted)">vm_preempt? → task_yield()</text>
+    <rect x="440" y="30" width="170" height="54" rx="3" fill="none" stroke="currentColor"/><text x="525" y="50" text-anchor="middle">IRQ0 · PIT at 100 Hz</text><text x="525" y="66" text-anchor="middle" fill="var(--muted)">uptime_ticks++</text><text x="525" y="80" text-anchor="middle" fill="var(--muted)">ticks ≥ deadline → vm_preempt = 1</text>
+    <line x1="440" y1="57" x2="392" y2="57" stroke="var(--warn)" stroke-width="1.5" marker-end="url(#arr9)"/><text x="416" y="48" text-anchor="middle" fill="var(--warn)">flag</text>
+    <line x1="305" y1="84" x2="305" y2="118" stroke="currentColor" marker-end="url(#arr9)"/>
+    <rect x="160" y="120" width="290" height="36" rx="3" fill="var(--warn-soft)" stroke="var(--warn)"/><text x="305" y="142" text-anchor="middle">ctx_switch back to the scheduler; next cell runs; resume later</text>
+    <rect x="630" y="30" width="110" height="54" rx="3" fill="none" stroke="currentColor" stroke-dasharray="4 3"/><text x="685" y="50" text-anchor="middle">IRQ1 · keyboard</text><text x="685" y="66" text-anchor="middle" fill="var(--muted)">scancode → ring</text><text x="685" y="80" text-anchor="middle" fill="var(--muted)">CPU halts when idle</text>
+  </g>
+</svg>
+</div>
+<figcaption>Preemption on bare metal. The interrupt only sets a flag; the VM, which already checks fuel on every step, honours it at the next step by yielding. The cell's stack, interpreter and environment stay intact and continue on the next slice; nothing in the kernel runs inside interrupt context.</figcaption>
+</figure>
+<h4>Arenas: memory per message</h4>
+<p>With preemption a cell can use its whole fuel budget, and the kernel's bump allocator never frees. So each cell owns an <em>arena</em> (8 MiB): while that cell runs, every allocation lands there, and the arena is reset when its next message starts. Values that must outlive the run are deep-copied into the persistent heap at the moment they cross the boundary: an object's data on <code>store_put</code>, a message body on <code>send</code>, the text of a ledger line, a capability binding. Filling the arena ends the run with <code>memory budget exceeded</code> through the usual error path. This is the real memory bound for a cell; the size budget on strings and lists remains as a cheap early check.</p>
+
+<!-- ============================================================ 7 -->
+<h2 id="syscall">7. Flow: the syscall gate</h2>
+<p>A cell can affect the world in one way: <code>(call &lt;cap&gt; "op" args…)</code>. The VM evaluates the arguments, charges ten fuel, and passes the capability handle, operation name and arguments to the kernel's syscall function bound for that cell. Everything hinges on what happens next.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 560" role="img" aria-label="Decision flow of the syscall gate: cap handle type, token exists, not revoked, holder matches caller, right present, then dispatch by kind; any failure returns a denied error to the cell" style="color: var(--fg);">
+  <defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <rect x="20" y="20" width="220" height="44" rx="3" fill="none" stroke="currentColor"/><text x="130" y="38" text-anchor="middle">cell code: (call store "put" …)</text><text x="130" y="54" text-anchor="middle" fill="var(--muted)">vm: sf_call / vs.c "call"</text>
+    <line x1="130" y1="64" x2="130" y2="92" stroke="currentColor" marker-end="url(#arr4)"/>
+    <!-- diamond 1 -->
+    <polygon points="130,94 240,124 130,154 20,124" fill="none" stroke="currentColor"/><text x="130" y="121" text-anchor="middle">first arg is a</text><text x="130" y="136" text-anchor="middle">CapHandle?</text>
+    <line x1="240" y1="124" x2="470" y2="124" stroke="var(--bad)" marker-end="url(#arr4)"/><text x="300" y="118" fill="var(--bad)">no</text>
+    <line x1="130" y1="154" x2="130" y2="182" stroke="currentColor" marker-end="url(#arr4)"/><text x="138" y="174" fill="var(--muted)">yes</text>
+    <!-- gate box -->
+    <rect x="20" y="184" width="220" height="196" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+    <text x="130" y="204" text-anchor="middle" font-weight="600" fill="var(--accent)">Kernel.syscall → caps.check</text>
+    <text x="36" y="230">1  token exists in table?</text>
+    <text x="36" y="254">2  not revoked?</text>
+    <text x="36" y="278">3  holder == calling cell?</text>
+    <text x="36" y="302">4  right "put" ∈ cap.rights?</text>
+    <text x="36" y="326">5  for kind=cell: target == to?</text>
+    <text x="36" y="356" fill="var(--muted)">any check fails → CapError</text>
+    <line x1="240" y1="282" x2="470" y2="282" stroke="var(--bad)" marker-end="url(#arr4)"/><text x="300" y="276" fill="var(--bad)">fail</text>
+    <line x1="130" y1="380" x2="130" y2="408" stroke="currentColor" marker-end="url(#arr4)"/><text x="138" y="400" fill="var(--muted)">all pass</text>
+    <!-- dispatch -->
+    <rect x="20" y="410" width="220" height="40" rx="3" fill="none" stroke="currentColor"/><text x="130" y="434" text-anchor="middle">dispatch by cap.kind</text>
+    <line x1="240" y1="430" x2="268" y2="430" stroke="currentColor" marker-end="url(#arr4)"/>
+    <rect x="270" y="400" width="470" height="140" rx="3" fill="none" stroke="currentColor" stroke-dasharray="4 3"/>
+    <text x="286" y="420" font-weight="600">store</text><text x="340" y="420" fill="var(--muted)">get · put(kind,data,tags,inputs) · find(tag) · lineage</text>
+    <text x="286" y="444" font-weight="600">console</text><text x="340" y="444" fill="var(--muted)">print → "[cell] …" on the screen</text>
+    <text x="286" y="468" font-weight="600">clock</text><text x="340" y="468" fill="var(--muted)">now → logical tick</text>
+    <text x="286" y="492" font-weight="600">cell</text><text x="340" y="492" fill="var(--muted)">send(body) → inbox of cap.target only</text>
+    <text x="286" y="516" font-weight="600">kernel</text><text x="340" y="516" fill="var(--muted)">cells → names; spawn/mint/revoke are shell-only</text>
+    <!-- denied box -->
+    <rect x="472" y="104" width="268" height="200" rx="3" fill="var(--bad-soft)" stroke="var(--bad)"/>
+    <text x="606" y="126" text-anchor="middle" font-weight="600" fill="var(--bad)">VMError "denied: …" raised in the cell</text>
+    <text x="486" y="152" fill="var(--muted)">· "first argument must be a capability"</text>
+    <text x="486" y="172" fill="var(--muted)">· "invalid capability"</text>
+    <text x="486" y="192" fill="var(--muted)">· "capability has been revoked"</text>
+    <text x="486" y="212" fill="var(--muted)">· "capability is not held by the caller"</text>
+    <text x="486" y="232" fill="var(--muted)">· "capability lacks right 'get'"</text>
+    <text x="486" y="252" fill="var(--muted)">· "capability targets a different cell"</text>
+    <text x="486" y="284" fill="var(--muted)">The cell's run ends; the kernel records</text>
+    <text x="486" y="298" fill="var(--muted)">ran ok=false and continues with the next cell.</text>
+  </g>
+</svg>
+</div>
+<figcaption>The syscall gate. Five checks stand between a cell and any effect. Because the holder is checked, a token copied out of another cell's environment is worthless; because rights are checked, a console capability cannot read the store.</figcaption>
+</figure>
+<p>Two details make the gate airtight. First, a cell receives capabilities only as <code>CapHandle</code> values bound into its environment by the kernel at <code>grant</code> time; the VM has no builtin that creates one, and <code>str</code> on a handle prints <code>&lt;cap label&gt;</code>, never the token. Second, <code>store.put</code> performed through the gate stamps the object with <code>by = calling cell</code> and <code>op = "run"</code>; a cell cannot forge provenance any more than it can forge a capability.</p>
+
+<!-- ============================================================ 8 -->
+<h2 id="caps">8. Flow: capability lifecycle</h2>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 300" role="img" aria-label="A capability is minted at genesis for the shell, attenuated by grant into a narrower copy held by a cell and bound to a label, used through calls, and revoked, which also revokes all descendants" style="color: var(--fg);">
+  <defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <rect x="20" y="30" width="170" height="60" rx="3" fill="none" stroke="currentColor"/>
+    <text x="105" y="50" text-anchor="middle" font-weight="600">genesis mint</text>
+    <text x="105" y="66" text-anchor="middle" fill="var(--muted)">store[get,put,find,lineage]</text>
+    <text x="105" y="81" text-anchor="middle" fill="var(--muted)">holder: shell · parent: none</text>
+    <line x1="190" y1="60" x2="228" y2="60" stroke="currentColor" marker-end="url(#arr5)"/><text x="196" y="52" fill="var(--muted)">grant wc store get,put</text>
+    <rect x="230" y="30" width="170" height="60" rx="3" fill="none" stroke="currentColor"/>
+    <text x="315" y="50" text-anchor="middle" font-weight="600">attenuate</text>
+    <text x="315" y="66" text-anchor="middle" fill="var(--muted)">store[get,put]  ⊂ parent rights</text>
+    <text x="315" y="81" text-anchor="middle" fill="var(--muted)">holder: wc · parent: genesis cap</text>
+    <line x1="400" y1="60" x2="438" y2="60" stroke="currentColor" marker-end="url(#arr5)"/>
+    <rect x="440" y="30" width="150" height="60" rx="3" fill="none" stroke="currentColor"/>
+    <text x="515" y="50" text-anchor="middle" font-weight="600">bind</text>
+    <text x="515" y="66" text-anchor="middle" fill="var(--muted)">wc.env["store"] =</text>
+    <text x="515" y="81" text-anchor="middle" fill="var(--muted)">CapHandle(token,"store")</text>
+    <line x1="590" y1="60" x2="628" y2="60" stroke="currentColor" marker-end="url(#arr5)"/>
+    <rect x="630" y="30" width="110" height="60" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+    <text x="685" y="50" text-anchor="middle" font-weight="600" fill="var(--accent)">use</text>
+    <text x="685" y="66" text-anchor="middle" fill="var(--muted)">(call store "put" …)</text>
+    <text x="685" y="81" text-anchor="middle" fill="var(--muted)">checked every time</text>
+
+    <!-- attempted widening -->
+    <line x1="315" y1="90" x2="315" y2="128" stroke="var(--bad)" marker-end="url(#arr5)"/>
+    <rect x="200" y="130" width="230" height="46" rx="3" fill="var(--bad-soft)" stroke="var(--bad)"/>
+    <text x="315" y="149" text-anchor="middle" fill="var(--bad)">wc tries attenuate → [get,put,find]</text>
+    <text x="315" y="165" text-anchor="middle" fill="var(--muted)">refused: "cannot grant rights you do not hold"</text>
+
+    <!-- revoke -->
+    <line x1="105" y1="90" x2="105" y2="210" stroke="currentColor" marker-end="url(#arr5)"/>
+    <text x="112" y="150" fill="var(--muted)">revoke wc store</text>
+    <text x="112" y="165" fill="var(--muted)">(shell controls every</text>
+    <text x="112" y="180" fill="var(--muted)">ancestor, so it may)</text>
+    <rect x="20" y="212" width="720" height="60" rx="3" fill="var(--warn-soft)" stroke="var(--warn)"/>
+    <text x="36" y="234" font-weight="600" fill="var(--warn)">revoke walks the tree: parent → children → grandchildren</text>
+    <text x="36" y="252" fill="var(--muted)">genesis store cap (shell) stays live · wc's copy REVOKED · anything wc derived from it REVOKED · next (call store …) in wc → "denied: capability has been revoked"</text>
+  </g>
+</svg>
+</div>
+<figcaption>Lifecycle of one capability. Authority only ever narrows along the parent chain; revocation follows the same chain downward.</figcaption>
+</figure>
+<h3>Delegation between cells</h3>
+<p>A cell may pass a narrower copy of a capability it holds to a cell it is linked to, if the capability carries the <code>delegate</code> right:</p>
+<pre><code>(call store "delegate" next "get" "store")   <span class="c">; next: a cell→x[send] capability; "store": the label bound in x</span></code></pre>
+<p>The gate checks four things: the caller holds the capability with <code>delegate</code>; the second argument is a <code>cell</code> capability the caller holds; the requested rights parse for that kind; and <code>attenuate</code> accepts them as a subset of the caller's. The new capability's parent is the delegating cell's own copy, so the revocation tree is unchanged: revoke the original and the delegated copy dies with it. The same syscall exists in the hosted kernel with three tests. Delegation does not require the shell, which makes cell pipelines self-assembling without widening anything.</p>
+<h3>Capability kinds and rights</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Kind</th><th>Rights</th><th>Target</th><th>Who gets it</th></tr></thead>
+<tbody>
+<tr><td><code>store</code></td><td><code>get put find lineage delegate</code></td><td>the one store</td><td>shell at genesis; cells by <code>grant</code></td></tr>
+<tr><td><code>console</code></td><td><code>print delegate</code></td><td>the screen</td><td>shell at genesis; cells by <code>grant</code></td></tr>
+<tr><td><code>clock</code></td><td><code>now delegate</code></td><td>logical tick counter</td><td>shell at genesis; cells by <code>grant</code></td></tr>
+<tr><td><code>cell</code></td><td><code>send delegate</code></td><td>one named cell</td><td>minted by the shell via <code>link a b</code>, then attenuated to <code>a</code></td></tr>
+<tr><td><code>kernel</code></td><td><code>spawn mint revoke cells</code></td><td>the kernel</td><td>shell at genesis; only <code>cells</code> is honoured when a cell calls it</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ 9 -->
+<h2 id="data">9. Data model: objects and the ledger</h2>
+<div class="two">
+<div>
+<h3>An object</h3>
+<pre><code>{
+  "kind":   "stats",
+  "data":   {"words": 9, "chars": 43},
+  "tags":   ["stats"],
+  "by":     "wc",            <span class="c">stamped by the gate</span>
+  "op":     "run",
+  "inputs": ["7889982f5dfd…"],   <span class="c">provenance</span>
+  "tick":   2
+}
+<span class="c">hash = sha256(canonical(json))  →  the object's only name</span></code></pre>
+<p>Canonical form (sorted keys, no whitespace, same escaping) is what makes the name stable: two principals writing the same stats from the same input get the same hash, and the store keeps one copy. <code>why &lt;hash&gt;</code> walks <code>inputs</code> recursively and prints the tree.</p>
+</div>
+<div>
+<h3>A ledger entry</h3>
+<pre><code>{
+  "seq":   27,
+  "prev":  "e639510d81…",        <span class="c">hash of entry 26</span>
+  "event": {"type": "ran", "cell": "mal",
+            "tick": 4, "fuel": 40, "ok": false,
+            "error": "denied: capability lacks right 'get'"},
+  "hash":  "daa5e4d9bd…"         <span class="c">sha256(seq, prev, event)</span>
+}</code></pre>
+<p>Event types: <code>genesis put mint grant revoke spawn kill send ran tick</code>. <code>verify</code> recomputes every hash and checks each <code>prev</code>. Editing any entry breaks every hash after it.</p>
+</div>
+</div>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 170" role="img" aria-label="Ledger entries chained by hash, with replay producing the in-memory state and fork producing a second kernel from a prefix" style="color: var(--fg);">
+  <defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <g>
+      <rect x="20" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="68" y="48" text-anchor="middle">#0 genesis</text><text x="68" y="64" text-anchor="middle" fill="var(--muted)">prev 000…</text>
+      <line x1="116" y1="52" x2="142" y2="52" stroke="currentColor" marker-end="url(#arr6)"/>
+      <rect x="144" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="192" y="48" text-anchor="middle">#1 put note</text><text x="192" y="64" text-anchor="middle" fill="var(--muted)">prev h0</text>
+      <line x1="240" y1="52" x2="266" y2="52" stroke="currentColor" marker-end="url(#arr6)"/>
+      <rect x="268" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="316" y="48" text-anchor="middle">#2 spawn wc</text><text x="316" y="64" text-anchor="middle" fill="var(--muted)">prev h1</text>
+      <line x1="364" y1="52" x2="390" y2="52" stroke="currentColor" marker-end="url(#arr6)"/>
+      <rect x="392" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="440" y="48" text-anchor="middle">#3 grant</text><text x="440" y="64" text-anchor="middle" fill="var(--muted)">prev h2</text>
+      <line x1="488" y1="52" x2="514" y2="52" stroke="currentColor" marker-end="url(#arr6)"/>
+      <rect x="516" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="564" y="48" text-anchor="middle">#4 send</text><text x="564" y="64" text-anchor="middle" fill="var(--muted)">prev h3</text>
+      <line x1="612" y1="52" x2="638" y2="52" stroke="currentColor" marker-end="url(#arr6)"/>
+      <rect x="640" y="30" width="96" height="44" rx="3" fill="none" stroke="currentColor"/><text x="688" y="48" text-anchor="middle">#5 ran</text><text x="688" y="64" text-anchor="middle" fill="var(--muted)">prev h4 = head</text>
+    </g>
+    <line x1="316" y1="74" x2="316" y2="112" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arr6)"/>
+    <rect x="200" y="114" width="232" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="316" y="131" text-anchor="middle" fill="var(--accent)" font-weight="600">rewind 3 → fork</text>
+    <text x="316" y="146" text-anchor="middle" fill="var(--muted)">new kernel = replay(#0..#2); original untouched</text>
+    <line x1="688" y1="74" x2="688" y2="112" stroke="currentColor" marker-end="url(#arr6)"/>
+    <rect x="560" y="114" width="180" height="40" rx="3" fill="none" stroke="currentColor"/>
+    <text x="650" y="131" text-anchor="middle" font-weight="600">boot → replay all</text>
+    <text x="650" y="146" text-anchor="middle" fill="var(--muted)">state = f(ledger)</text>
+  </g>
+</svg>
+</div>
+<figcaption>The ledger as the single source of truth. In-memory state is derived; a fork is a replay of a prefix into a fresh directory, so history is never edited.</figcaption>
+</figure>
+
+<h3>On bare metal: the ledger on disk, and rewind</h3>
+<p>The bare-metal kernel keeps the same event log on a raw disk attached as the primary ATA master. There is no filesystem in between: the disk <em>is</em> the ledger. Each event is one text line; object data inside a line is serialized as Verum Script (<code>(dict "words" 9 …)</code>) so the kernel's own reader parses it back on replay.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 300" role="img" aria-label="Disk layout with a header sector and a stream of ledger lines; an event is appended by rewriting the tail sector and the header; rewind rebuilds memory from the first N lines and rewrites the header to a shorter length" style="color: var(--fg);">
+  <defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <text x="20" y="24" font-weight="600">build/verum.img (8 MiB raw, ATA primary master)</text>
+    <rect x="20" y="36" width="110" height="46" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="75" y="54" text-anchor="middle" font-weight="600">sector 0</text><text x="75" y="70" text-anchor="middle" fill="var(--muted)">magic · bytes · entries</text>
+    <rect x="132" y="36" width="130" height="46" rx="3" fill="none" stroke="currentColor"/><text x="197" y="54" text-anchor="middle">sector 1</text><text x="197" y="70" text-anchor="middle" fill="var(--muted)">genesis|… put|code|…</text>
+    <rect x="264" y="36" width="130" height="46" rx="3" fill="none" stroke="currentColor"/><text x="329" y="54" text-anchor="middle">sector 2</text><text x="329" y="70" text-anchor="middle" fill="var(--muted)">… spawn|wc|… grant|…</text>
+    <rect x="396" y="36" width="130" height="46" rx="3" fill="none" stroke="currentColor"/><text x="461" y="54" text-anchor="middle">sector k (partial)</text><text x="461" y="70" text-anchor="middle" fill="var(--muted)">… ran|wc|1|83|2| ░░░</text>
+    <rect x="528" y="36" width="80" height="46" rx="3" fill="none" stroke="currentColor" stroke-dasharray="4 3"/><text x="568" y="62" text-anchor="middle" fill="var(--muted)">unused</text>
+
+    <text x="20" y="118" font-weight="600">append (every recorded event)</text>
+    <rect x="20" y="128" width="200" height="40" rx="3" fill="none" stroke="currentColor"/><text x="120" y="145" text-anchor="middle">ledger_append(line)</text><text x="120" y="160" text-anchor="middle" fill="var(--muted)">hash chain in RAM</text>
+    <line x1="220" y1="148" x2="248" y2="148" stroke="currentColor" marker-end="url(#arr8)"/>
+    <rect x="250" y="128" width="200" height="40" rx="3" fill="none" stroke="currentColor"/><text x="350" y="145" text-anchor="middle">disk_append(line)</text><text x="350" y="160" text-anchor="middle" fill="var(--muted)">read tail sector · write · flush</text>
+    <line x1="450" y1="148" x2="478" y2="148" stroke="currentColor" marker-end="url(#arr8)"/>
+    <rect x="480" y="128" width="130" height="40" rx="3" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="545" y="145" text-anchor="middle" fill="var(--accent)">header: bytes +=</text><text x="545" y="160" text-anchor="middle" fill="var(--muted)">entries += 1</text>
+
+    <text x="20" y="206" font-weight="600">rewind N (after a typed "yes")</text>
+    <rect x="20" y="216" width="150" height="54" rx="3" fill="none" stroke="currentColor"/><text x="95" y="234" text-anchor="middle">reset_state()</text><text x="95" y="249" text-anchor="middle" fill="var(--muted)">store · caps · cells</text><text x="95" y="263" text-anchor="middle" fill="var(--muted)">ledger · tick = 0</text>
+    <line x1="170" y1="243" x2="198" y2="243" stroke="currentColor" marker-end="url(#arr8)"/>
+    <rect x="200" y="216" width="190" height="54" rx="3" fill="none" stroke="currentColor"/><text x="295" y="234" text-anchor="middle">replay lines 0..N-1</text><text x="295" y="249" text-anchor="middle" fill="var(--muted)">from the RAM copies,</text><text x="295" y="263" text-anchor="middle" fill="var(--muted)">loading=true: no write-back</text>
+    <line x1="390" y1="243" x2="418" y2="243" stroke="currentColor" marker-end="url(#arr8)"/>
+    <rect x="420" y="216" width="190" height="54" rx="3" fill="var(--warn-soft)" stroke="var(--warn)"/><text x="515" y="234" text-anchor="middle" font-weight="600" fill="var(--warn)">disk_truncate</text><text x="515" y="249" text-anchor="middle" fill="var(--muted)">header: bytes = offset after N-1</text><text x="515" y="263" text-anchor="middle" fill="var(--muted)">entries = N · tail no longer counted</text>
+    <text x="630" y="243" fill="var(--muted)">next boot replays N</text>
+  </g>
+</svg>
+</div>
+<figcaption>Persistence on bare metal. A write touches at most two data sectors and the header; a rewind rebuilds memory from the kept prefix and shrinks the header's byte count, so the next boot replays exactly N entries. The shell previews the entries that will move and asks for confirmation.</figcaption>
+</figure>
+<h4>The attic: rewind without loss</h4>
+<p>Before the ledger is shortened, <code>kernel_rewind</code> appends the entries it is cutting off to the attic stream (sectors 8192–16383), introduced by a <code>branch|from|count|uptime</code> line. <code>attic</code> lists the branches; <code>restore k</code> re-applies branch <em>k</em> through the normal replay path with write-back enabled, so the entries return to the ledger and the disk in their original order. A restore is accepted only when the ledger length equals the branch's <code>from</code>: anything else would splice events onto a history they were not recorded against. Branches stay in the attic after a restore, so the attic is append-only like everything else. This replaces the destructive rewind of the first bare-metal version and matches the hosted kernel's fork semantics in effect, on one disk.</p>
+<h4>The small UI</h4>
+<p>Row 0 is a status bar, refreshed after every command: object count, cell count, ledger length, tick, and how many entries the disk holds (or <code>none (RAM only)</code> when no disk is attached). <code>history</code> prints the whole timeline with entry numbers for <code>rewind</code>. <code>dash</code> replaces the console with a panel: cells on the left (green when error-free, yellow otherwise, with the labels of the capabilities they hold, <code>!</code> marking a revoked one), the newest 18 ledger entries on the right, and store and disk totals below; any key returns to the shell.</p>
+
+<!-- ============================================================ 10 -->
+<h2 id="vm">10. The Verum Script VM</h2>
+<p>Cells cannot run native code or Python, because a cell with access to either could reach around the capability table. Verum Script is a small Lisp whose interpreter is owned by the kernel and whose values are only numbers, strings, lists, dictionaries, closures and opaque capability handles.</p>
+<figure>
+<div class="figwrap">
+<svg viewBox="0 0 760 200" role="img" aria-label="Source text is tokenized and parsed into forms; the evaluator runs forms against an environment chain, burning fuel on every step; the only exit is the call special form into the kernel syscall" style="color: var(--fg);">
+  <defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+  <g font-size="12" fill="currentColor">
+    <rect x="20" y="30" width="120" height="50" rx="3" fill="none" stroke="currentColor"/><text x="80" y="51" text-anchor="middle">source (.vs)</text><text x="80" y="67" text-anchor="middle" fill="var(--muted)">a code object</text>
+    <line x1="140" y1="55" x2="168" y2="55" stroke="currentColor" marker-end="url(#arr7)"/>
+    <rect x="170" y="30" width="120" height="50" rx="3" fill="none" stroke="currentColor"/><text x="230" y="51" text-anchor="middle">tokenize + parse</text><text x="230" y="67" text-anchor="middle" fill="var(--muted)">→ nested lists</text>
+    <line x1="290" y1="55" x2="318" y2="55" stroke="currentColor" marker-end="url(#arr7)"/>
+    <rect x="320" y="30" width="150" height="50" rx="3" fill="none" stroke="currentColor"/><text x="395" y="51" text-anchor="middle">load_module</text><text x="395" y="67" text-anchor="middle" fill="var(--muted)">top-level defines → cell env</text>
+    <line x1="470" y1="55" x2="498" y2="55" stroke="currentColor" marker-end="url(#arr7)"/>
+    <rect x="500" y="30" width="240" height="50" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text x="620" y="51" text-anchor="middle" fill="var(--accent)" font-weight="600">Interp.eval(form, env)</text><text x="620" y="67" text-anchor="middle" fill="var(--muted)">burn(1) per step · burn(10) per call</text>
+    <line x1="620" y1="80" x2="620" y2="118" stroke="currentColor" marker-end="url(#arr7)"/>
+    <rect x="500" y="120" width="240" height="50" rx="3" fill="none" stroke="currentColor"/><text x="620" y="141" text-anchor="middle">env chain</text><text x="620" y="157" text-anchor="middle" fill="var(--muted)">locals → module defines + caps → builtins</text>
+    <rect x="20" y="120" width="440" height="50" rx="3" fill="none" stroke="currentColor" stroke-dasharray="4 3"/>
+    <text x="36" y="141" font-weight="600">budgets</text>
+    <text x="100" y="141" fill="var(--muted)">fuel: steps per run (50 000)   ·   size: string/list length (200 000 py, 20 000 C)</text>
+    <text x="100" y="158" fill="var(--muted)">depth: nested calls (150 py, 60 C)   ·   exceeding any → VMError, run ends</text>
+  </g>
+</svg>
+</div>
+<figcaption>Pipeline of the VM. Module load runs with no capabilities bound, so a cell's top level can only define functions; capabilities appear in its environment only when the shell grants them.</figcaption>
+</figure>
+<h3>Why there is nothing to escape to</h3>
+<ul>
+  <li>Builtins operate on plain values; none of them touches Python objects, modules, I/O or memory. The C version has no <code>libc</code> to reach.</li>
+  <li>No mutation primitives: no <code>set!</code>, no mutable cells. State lives in the store or nowhere.</li>
+  <li>Symbols that are not bound raise <code>unbound symbol</code>; <code>(__import__ "os")</code> is just an unbound symbol.</li>
+  <li>Errors are exceptions in Python and <code>longjmp</code> in C; in both, the interpreter frame is discarded and the kernel's own frame continues.</li>
+</ul>
+
+<!-- ============================================================ 11 -->
+<h2 id="attacks">11. How attacks fail</h2>
+<p><code>cells/malware.vs</code> is a cell written to break the system. It is granted exactly one capability, <code>console[print]</code>. The table shows what each attack does and which mechanism stops it. All five run in the demo on both targets, and the kernel continues afterward with the other cells' error counts unchanged.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>#</th><th>Attack</th><th>Code</th><th>Stopped by</th><th>Message</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Forge a capability from a guessed token</td><td><code>(call "deadbeef…" "get" "x")</code></td><td>VM: <code>call</code> accepts only a <code>CapHandle</code>, which no builtin can create</td><td><code>first argument must be a capability</code></td></tr>
+<tr><td>2</td><td>Use the console cap to read the store</td><td><code>(call console "get" "x")</code></td><td>Gate check 4: right not in cap</td><td><code>denied: capability lacks right 'get'</code></td></tr>
+<tr><td>3</td><td>Burn CPU forever</td><td><code>(spin 2000)</code> = 4 million closure calls</td><td>Hosted: fuel budget. Bare metal: it is preempted every 50 ms so others keep running, and ends when its arena fills</td><td><code>fuel exhausted</code> / <code>memory budget exceeded</code></td></tr>
+<tr><td>4</td><td>Allocate until memory is gone</td><td><code>(grow l) = (grow (append l l))</code></td><td>Size budget on <code>append</code></td><td><code>value exceeds size budget</code></td></tr>
+<tr><td>5</td><td>Blow the stack</td><td><code>(deep i) = (+ 1 (deep (+ i 1)))</code></td><td>Depth budget</td><td><code>call depth exceeded</code></td></tr>
+<tr><td>–</td><td>Steal another cell's token (tests)</td><td>present <code>wc</code>'s token as <code>mal</code></td><td>Gate check 3: holder mismatch</td><td><code>capability is not held by the caller</code></td></tr>
+<tr><td>–</td><td>Widen a grant (tests)</td><td>attenuate <code>[get]</code> → <code>[get,put]</code></td><td><code>attenuate</code> requires subset</td><td><code>cannot grant rights you do not hold</code></td></tr>
+<tr><td>–</td><td>Send to a cell you were not linked to (tests)</td><td>use a <code>cell→b</code> cap to send to <code>c</code></td><td>Gate check 5: target mismatch</td><td><code>capability targets a different cell</code></td></tr>
+<tr><td>–</td><td>Edit history (tests)</td><td>change entry 1's data in memory</td><td><code>Ledger.verify</code></td><td><code>entry 1: content does not match its hash</code></td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ 12 -->
+<h2 id="usage">12. How to use</h2>
+<h3>Hosted kernel (Python)</h3>
+<p>Requires Python 3.10 or newer and nothing else.</p>
+<pre><code><span class="c"># guided tour in a throwaway directory</span>
+python -m verum demo
+
+<span class="c"># interactive shell; state persists in ./state/ledger.jsonl</span>
+python -m verum
+
+<span class="c"># interactive shell with state somewhere else</span>
+python -m verum D:\somewhere\mystate
+
+<span class="c"># the test suite (17 tests, most are attacks that must fail)</span>
+python -m unittest discover -s tests -t .</code></pre>
+
+<h3>Bare-metal kernel (C, x86)</h3>
+<p>Requires NASM, LLVM (clang + ld.lld) and QEMU. On Windows:</p>
+<pre><code>winget install NASM.NASM
+winget install LLVM.LLVM
+winget install SoftwareFreedomConservancy.QEMU</code></pre>
+<pre><code>cd metal
+python build.py          <span class="c"># build only → build/verum.elf (~57 KiB)</span>
+python build.py run      <span class="c"># build and boot in a QEMU window</span>
+python build.py test     <span class="c"># boot headless, work, kill QEMU, reboot from disk, rewind, reboot, dash; dumps build/*.png</span></code></pre>
+<p>The build creates <code>build/verum.img</code>, an 8 MiB raw disk, and attaches it as the primary ATA drive. Delete it to start from a blank system; <code>build.py test</code> always starts from a blank one.</p>
+<p><code>build.py</code> looks for the tools on <code>PATH</code> and in their default install folders. The kernel is loaded by QEMU's <code>-kernel</code> option, which understands Multiboot ELF files directly; no ISO or bootloader image is needed.</p>
+
+<h3>A first session</h3>
+<pre><code>verum&gt; note Ship the report by Friday
+stored note 3c1f…
+verum&gt; spawn wc wordcount
+cell wc spawned with NO capabilities. Use: grant wc &lt;cap&gt; [rights]
+verum&gt; grant wc store get,put
+granted store[get,put] held by wc
+verum&gt; grant wc console print
+granted console[print] held by wc
+verum&gt; send wc "3c1f…"          <span class="c"># bare metal: send wc @note</span>
+queued for wc: 3c1f…
+verum&gt; run
+[wc] counted 5 words in 3c1f…
+ran 1 tick(s); now at tick 1
+verum&gt; find stats
+  9a02…  stats  by wc  {words: 5, chars: 28}
+verum&gt; why 9a02
+  9a02… stats &lt;- wc via run @tick 1: {words: 5, chars: 28}
+      3c1f… note &lt;- shell via note @tick 0: Ship the report by Friday</code></pre>
+
+<!-- ============================================================ 13 -->
+<h2 id="shell">13. Shell reference</h2>
+<p>Commands are intents, not programs. Hashes may be typed as any unique prefix of at least four characters. <span class="pill py">py</span> marks commands only in the hosted shell; <span class="pill">metal</span> marks bare-metal-only ones.</p>
+<dl class="cmds">
+<dt>note &lt;text&gt;</dt><dd>Store a <code>note</code> object tagged <code>note</code>.</dd>
+<dt>code &lt;name&gt; &lt;path.vs&gt; <span class="pill py">py</span></dt><dd>Syntax-check a Verum Script file and store it as a <code>code</code> object tagged <code>code</code> and <code>&lt;name&gt;</code>.</dd>
+<dt>code <span class="pill">metal</span></dt><dd>List the code objects embedded in the kernel image.</dd>
+<dt>find &lt;tag&gt;</dt><dd>List objects carrying a tag.</dd>
+<dt>tags</dt><dd>List every tag with its object count.</dd>
+<dt>show &lt;hash&gt;</dt><dd>Print kind, tags, creator, operation, tick, inputs and data of an object.</dd>
+<dt>why &lt;hash&gt;</dt><dd>Print the provenance tree: the object, what it was made from, recursively.</dd>
+<dt>spawn &lt;cell&gt; &lt;code&gt;</dt><dd>Create a cell from a code object (by hash or by name). It starts with no capabilities.</dd>
+<dt>grant &lt;cell|seat&gt; &lt;cap&gt; [rights]</dt><dd>Attenuate one of your capabilities to the listed rights (default: all you hold) and bind it in the cell, or in the seat, under the capability's name. Add <code>delegate</code> to let a cell pass it on. Example: <code>grant wc store get,put</code>.</dd>
+<dt>link &lt;a&gt; &lt;b&gt; [label]</dt><dd>Mint a <code>cell→b[send]</code> capability and give it to <code>a</code>, bound as <code>label</code> (default <code>b</code>). <code>shout.vs</code> expects the label <code>next</code>.</dd>
+<dt>send &lt;cell&gt; &lt;expr&gt;</dt><dd>Evaluate a pure Verum Script expression (no capabilities) and queue the value for the cell. Bare metal also accepts <code>@tag</code>: the hash of the newest object with that tag.</dd>
+<dt>run [rounds]</dt><dd>Drive the scheduler until no cell has work or the round limit (default 100) is reached. On bare metal a round is one time slice per runnable cell; cells paused mid-run resume on the next <code>run</code>.</dd>
+<dt>cells</dt><dd>List cells with run/error/fuel counters and every capability each holds.</dd>
+<dt>caps</dt><dd>List your own capabilities.</dd>
+<dt>revoke &lt;cell&gt; &lt;label&gt;</dt><dd>Revoke the capability bound under that label in that cell, and everything derived from it.</dd>
+<dt>kill &lt;cell&gt;</dt><dd>Remove a cell.</dd>
+<dt>eval &lt;expr&gt;</dt><dd>Run Verum Script in the shell with your own capabilities bound as <code>store</code>, <code>console</code>, <code>clock</code>, <code>kernel</code>. The hosted shell lists which capabilities were used.</dd>
+<dt>ledger [n]</dt><dd>Show the last <code>n</code> ledger entries.</dd>
+<dt>verify</dt><dd>Recompute and check the whole hash chain.</dd>
+<dt>rewind &lt;n&gt;</dt><dd>Hosted: fork the system at ledger entry <code>n</code> into a new state directory and switch to it; the original is untouched. Bare metal: show the entries that will move to the attic, ask you to type <code>yes</code>, then rebuild from the first <code>n</code> entries and shorten the disk ledger. Needs <code>kernel[revoke]</code>.</dd>
+<dt>attic <span class="pill">metal</span></dt><dd>List the branches cut off by earlier rewinds, marking any that can be restored from the current point.</dd>
+<dt>restore &lt;k&gt; <span class="pill">metal</span></dt><dd>Re-apply branch <code>k</code>; only when the ledger is at that branch's starting point.</dd>
+<dt>seat &lt;name&gt; <span class="pill">metal</span></dt><dd>Create another human principal with no capabilities. Needs <code>kernel[mint]</code>.</dd>
+<dt>switch &lt;name&gt; <span class="pill">metal</span></dt><dd>Put that seat at the keyboard; the prompt changes and every intent is checked against its capabilities.</dd>
+<dt>seats · whoami <span class="pill">metal</span></dt><dd>List seats and their capabilities; print the active seat.</dd>
+<dt>history <span class="pill">metal</span></dt><dd>The whole ledger as a numbered timeline, for choosing a rewind point.</dd>
+<dt>dash <span class="pill">metal</span></dt><dd>Full-screen panel: cells and their capabilities, ledger tail, store and disk totals. Any key returns.</dd>
+<dt>uptime <span class="pill">metal</span></dt><dd>Milliseconds and timer ticks since boot, and the per-message time slice.</dd>
+<dt>trap <span class="pill">metal</span></dt><dd>Deliberately raise a divide-by-zero in the kernel to show the exception panel. The machine halts; the disk is intact.</dd>
+<dt>mem <span class="pill">metal</span></dt><dd>Heap used, object, capability and ledger counts, entries on disk.</dd>
+<dt>demo <span class="pill">metal</span></dt><dd>Run the scripted tour (hosted: <code>python -m verum demo</code>).</dd>
+<dt>help · quit</dt><dd></dd>
+</dl>
+
+<!-- ============================================================ 14 -->
+<h2 id="lang">14. Language reference: Verum Script</h2>
+<div class="two">
+<div>
+<h4>Literals</h4>
+<pre><code>42  -7  3.5 <span class="c">(py only)</span>  "text\n"  true  false  nil</code></pre>
+<h4>Special forms</h4>
+<pre><code>(define name value)
+(define (fn a b) body…)
+(lambda (a b) body…)
+(let ((x 1) (y 2)) body…)
+(if cond then [else])
+(cond (c1 e1) (c2 e2) (else e))
+(do e1 e2 …)      (and …)   (or …)
+(quote x)
+(call &lt;cap&gt; "op" args…)   <span class="c">the only effect</span></code></pre>
+<h4>Numbers and logic</h4>
+<pre><code>+ - * / mod   = &lt; &gt; &lt;= &gt;=   not
+nil? number? string? list? dict?</code></pre>
+</div>
+<div>
+<h4>Lists</h4>
+<pre><code>(list 1 2 3)  (head l)  (tail l)  (nth l i)
+(len v)  (append l1 l2)  (cons x l)
+(range n)  (reverse l)  (sort l)
+(map f l)  (filter f l)  (reduce f init l)
+(slice v from [to])</code></pre>
+<h4>Dictionaries</h4>
+<pre><code>(dict "k" 1 "j" 2)  (get d "k" [default])
+(keys d)  (assoc d "k" v)   <span class="c">returns a new dict</span></code></pre>
+<h4>Strings</h4>
+<pre><code>(str a b …)  (split s [sep])  (join l [sep])
+(upper s)  (lower s)  (trim s)  (contains s sub)
+(error "message")</code></pre>
+<h4>Capability operations</h4>
+<pre><code>(call store "get" hash)            → {hash kind data tags by}
+(call store "put" kind data [tags] [inputs]) → hash
+(call store "find" tag)            → list of hashes
+(call store "lineage" hash)        → list
+(call console "print" a b …)
+(call clock "now")                 → tick
+(call next "send" body)            → nil
+(call store "delegate" next "get" "store")  → nil   ; needs delegate right + a link
+(call kernel "cells")              → names</code></pre>
+</div>
+</div>
+
+<!-- ============================================================ 15 -->
+<h2 id="cells">15. Writing a cell</h2>
+<p>A cell is a code object whose top level defines <code>on-message</code>. The handler receives the sender's name and the message body. Capabilities are plain names in the environment, bound by <code>grant</code> and <code>link</code>; the names the code uses must match the labels the shell binds.</p>
+<pre><code><span class="c">; cells/wordcount.vs — needs: store[get,put]  console[print]</span>
+(<span class="k">define</span> (count-words text)
+  (len (split text " ")))
+
+(<span class="k">define</span> (on-message from body)
+  (<span class="k">let</span> ((obj   (<span class="k">call</span> store "get" body))
+        (text  (get obj "data"))
+        (stats (dict "words" (count-words text)
+                     "chars" (len text))))
+    (<span class="k">call</span> console "print" "counted" (get stats "words") "words in" (slice body 0 12))
+    (<span class="k">call</span> store "put" "stats" stats (list "stats") (list (get obj "hash")))))</code></pre>
+<p>Notes for authors:</p>
+<ul>
+  <li>Pass the hashes you read from as the fourth argument of <code>put</code>; that is what makes <code>why</code> work and what makes results reproducible.</li>
+  <li>Keep per-message work under the fuel budget (50,000 steps). Large inputs should be split across messages rather than processed in one run.</li>
+  <li>A cell has no state between messages. If you need to accumulate, put an object, tag it, and <code>find</code> it next time.</li>
+  <li>To chain cells, ask the shell for <code>link a b label</code> and call <code>(call label "send" value)</code>. A cell can only reach cells it has been linked to.</li>
+  <li>Hosted: save as <code>cells/name.vs</code>, then <code>code name cells/name.vs</code> and <code>spawn x name</code>. Bare metal: add the source to <code>cells.c</code> and rebuild; there is no filesystem to load from.</li>
+</ul>
+
+<!-- ============================================================ 16 -->
+<h2 id="compare">16. Python vs bare metal</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Aspect</th><th>verum/ (Python)</th><th>metal/ (C)</th></tr></thead>
+<tbody>
+<tr><td>Runs on</td><td>Python 3.10+ on any OS</td><td>x86 PC or QEMU, nothing underneath</td></tr>
+<tr><td>Persistence</td><td><code>state/ledger.jsonl</code>, replayed on boot</td><td>raw ATA disk image, replayed on boot</td></tr>
+<tr><td>Rewind</td><td>forks into a new directory; original kept</td><td>cut-off entries go to the attic; <code>restore</code> brings them back</td></tr>
+<tr><td>Humans</td><td>one principal (<code>shell</code>)</td><td>seats: <code>seat</code>, <code>switch</code>, per-seat capabilities</td></tr>
+<tr><td>Delegation</td><td><code>delegate</code> syscall (3 tests)</td><td><code>delegate</code> syscall, <code>deleg</code> demo cell</td></tr>
+<tr><td>UI</td><td>plain REPL</td><td>status bar + <code>dash</code> panel + <code>history</code></td></tr>
+<tr><td>Code objects</td><td>loaded from <code>.vs</code> files by the shell</td><td>embedded in the image (<code>cells.c</code>)</td></tr>
+<tr><td>Numbers</td><td>int and float</td><td>int only</td></tr>
+<tr><td>Errors in cells</td><td>Python exceptions caught per run</td><td><code>vs_setjmp</code>/<code>vs_longjmp</code> in boot.asm</td></tr>
+<tr><td>Budgets</td><td>fuel 50k · size 200k · depth 150</td><td>fuel 2M · 8 MiB arena per message · size 20k · depth 60</td></tr>
+<tr><td>Scheduling</td><td>one message per cell per tick, run to completion</td><td>preemptive: per-cell stacks, 50 ms slices, pause/resume mid-message</td></tr>
+<tr><td>Interrupts</td><td>n/a</td><td>IDT, PIC, PIT 100 Hz, keyboard IRQ, exception panel</td></tr>
+<tr><td>Limits</td><td>unbounded tables</td><td>512 objects · 256 caps · 12 cells · 8 seats · 2048 ledger entries · 16-message inboxes · 4 MiB ledger + 4 MiB attic</td></tr>
+<tr><td>Console / input</td><td>stdout / <code>input()</code></td><td>VGA text at 0xB8000 / interrupt-driven PS/2 keyboard</td></tr>
+<tr><td>Tokens</td><td><code>secrets.token_hex(16)</code></td><td>SHA-256(rdtsc, heap, counter)</td></tr>
+<tr><td>Tests</td><td>20 unit tests</td><td><code>build.py test</code>: work → reboot → rewind → reboot → restore → seats → delegate → preempt → trap, with screen dumps</td></tr>
+</tbody></table></div>
+
+<!-- ============================================================ 17 -->
+<h2 id="limits">17. Limits and next steps</h2>
+<div class="callout warn">The security claims are about the model: a cell cannot escape Verum Script, and nothing happens without a capability. They hold as far as the interpreter and the gate have no bugs. Neither implementation has been audited.</div>
+<ul>
+  <li><strong>Bare metal has no paging or network.</strong> It is single-core; the disk driver is PIO on the primary ATA bus, one sector per transfer. Cells are isolated by the VM and by their arenas, not by hardware: paging would add a second wall that holds even against an interpreter bug. The next natural steps, in order: paging with per-cell address spaces; seats in the hosted kernel for parity; then a capability-gated network device.</li>
+  <li><strong>Interrupt handlers do the minimum.</strong> The timer only counts and sets a flag; the keyboard only queues a scancode. All real work happens in the kernel's normal flow, which keeps the ledger and the VM free of reentrancy concerns.</li>
+  <li><strong>The hosted version is a model of a machine, not a machine.</strong> Its purpose is to prove the design and to be the reference for the port.</li>
+  <li><strong>Scheduling is round-robin without priorities.</strong> On bare metal a cell is paused after 50 ms and resumed later, so no cell can starve the rest; fuel and the arena bound each message. Live interleaving is nondeterministic (as on any OS), but the ledger records the order that actually happened, so replay is exact.</li>
+  <li><strong>The genesis seat is trusted.</strong> <code>shell</code> holds the genesis capabilities; other seats hold only what it grants them. <code>switch</code> is not authenticated: seats separate authority, not identity. A real login would need a secret per seat, which is a small addition to the seat table.</li>
+  <li><strong>Booting a physical PC from USB</strong> needs a GRUB image around the same <code>verum.elf</code>; the kernel itself does not change.</li>
+</ul>
+<p class="meta">VERUM OS · hosted kernel in Python · bare-metal kernel in C · one ledger, one store, one gate.</p>
+</main>
+</div>
+
+</body>
+</html>
