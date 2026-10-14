@@ -5,7 +5,10 @@
  * rest in the attic. Event forms ('|'-separated, data last so it may contain '|'):
  *
  *   genesis|storeTok|consoleTok|clockTok|kernelTok
- *   seat|name
+ *   seat|name|salt|secretHash                      (salt and hash empty for an open seat)
+ *   login|name|ok                                  (audit only)
+ *   alarm|cell|periodTicks|<body as Verum Script>
+ *   unalarm|index
  *   put|kind|by|op|tick|tag,tag|input,input|<data as Verum Script>
  *   spawn|cell|codeHash|fuel
  *   grant|parentTok|by|rights|holder|label|tok      holder: a cell or a seat
@@ -23,6 +26,25 @@ static u32 *sched_sp = 0;          /* the scheduler's saved stack pointer while 
 const char *k_me = SHELL;
 static Cell cells[MAX_CELLS];
 static Seat seats[MAX_SEATS];
+static Alarm alarms[MAX_ALARMS];
+bool k_background = false;
+void (*k_idle_hook)(void) = 0;
+static bool in_background = false;         /* console output goes to the log while true */
+
+/* ---------------------------------------------------------------- console lines: screen or background log */
+#define BGLOG 24
+static const char *bglog[BGLOG]; static int bglog_head = 0, bglog_n = 0;
+int bglog_count(void) { return bglog_n; }
+const char *bglog_get(int i) { return (i >= 0 && i < bglog_n) ? bglog[(bglog_head + BGLOG - bglog_n + i) % BGLOG] : ""; }
+void bglog_clear(void) { bglog_n = 0; }
+static void console_line(u8 color, const char *line) {
+    if (in_background) {
+        heap_persist_begin(); bglog[bglog_head] = kstrdup(line); heap_persist_end();
+        bglog_head = (bglog_head + 1) % BGLOG; if (bglog_n < BGLOG) bglog_n++;
+        return;
+    }
+    vga_color(color, C_BLACK); vga_puts(line); vga_color(C_GREY, C_BLACK); vga_putc('\n');
+}
 
 static void copy_name(char *dst, const char *src) {
     usize n = strlen(src); if (n >= NAME_LEN) n = NAME_LEN - 1;
@@ -69,12 +91,91 @@ static Seat *seat_internal(const char *name, const char **err) {
     *err = "too many seats"; return 0;
 }
 
-Seat *seat_create(const char *name, const char **err) {
+static void hash_secret(const char *salt, const char *pass, char out[65]) {
+    char buf[160]; strcpy(buf, salt); strcat(buf, ":");
+    usize n = strlen(buf), m = strlen(pass); if (n + m >= sizeof buf) m = sizeof buf - 1 - n;
+    memcpy(buf + n, pass, m); buf[n + m] = 0;
+    u8 d[32]; sha256((const u8 *)buf, strlen(buf), d); hex_encode(d, 32, out);
+}
+
+Seat *seat_create(const char *name, const char *passphrase, const char **err) {
     if (!i_may(K_KERNEL, R_MINT)) { *err = "you hold no kernel[mint] capability"; return 0; }
     Seat *s = seat_internal(name, err);
     if (!s) return 0;
-    LB b = lb_new(64); lb_add(&b, "seat"); lb_sep(&b); lb_add(&b, name); record(b.p);
+    if (passphrase && passphrase[0]) {
+        int tmp = cap_mint(K_CLOCK, 0, name, 0, -1, 0);   /* borrow the token generator for a salt */
+        memcpy(s->salt, cap_at(tmp)->token, 16); s->salt[16] = 0; cap_at(tmp)->revoked = true;
+        hash_secret(s->salt, passphrase, s->secret);
+    }
+    LB b = lb_new(160); lb_add(&b, "seat"); lb_sep(&b); lb_add(&b, name); lb_sep(&b); lb_add(&b, s->salt); lb_sep(&b); lb_add(&b, s->secret);
+    record(b.p);
     return s;
+}
+
+bool seat_switch(const char *name, const char *passphrase, const char **err) {
+    Seat *s = seat_find(name);
+    if (!s) { *err = "no such seat"; return false; }
+    bool ok = true;
+    if (s->secret[0]) { char h[65]; hash_secret(s->salt, passphrase ? passphrase : "", h); ok = strcmp(h, s->secret) == 0; }
+    LB b = lb_new(64); lb_add(&b, "login"); lb_sep(&b); lb_add(&b, name); lb_sep(&b); lb_add(&b, ok ? "1" : "0"); record(b.p);
+    if (!ok) { *err = "wrong passphrase"; return false; }
+    k_me = s->name;
+    return true;
+}
+
+/* ---------------------------------------------------------------- alarms and background work */
+
+int alarm_add(const char *cell, u32 period, Val *body, const char **err) {
+    if (!i_may(K_KERNEL, R_MINT)) { *err = "you hold no kernel[mint] capability"; return -1; }
+    if (!cell_find(cell)) { *err = "no such cell"; return -1; }
+    if (period < 10) { *err = "period must be at least 10 ticks (100 ms)"; return -1; }
+    for (int i = 0; i < MAX_ALARMS; i++) if (!alarms[i].used) {
+        alarms[i].used = true; copy_name(alarms[i].cell, cell); alarms[i].period = period;
+        alarms[i].due = uptime_ticks + period; alarms[i].body = v_persist(body);
+        LB b = lb_new(VS_MAX_SIZE + 64);
+        lb_add(&b, "alarm"); lb_sep(&b); lb_add(&b, cell); lb_sep(&b); lb_u(&b, period); lb_sep(&b);
+        v_serialize(body, b.p + b.n, b.cap - b.n); b.n = strlen(b.p);
+        record(b.p);
+        return i;
+    }
+    *err = "too many alarms"; return -1;
+}
+
+bool alarm_remove(int idx, const char **err) {
+    if (!i_may(K_KERNEL, R_MINT)) { *err = "you hold no kernel[mint] capability"; return false; }
+    if (idx < 0 || idx >= MAX_ALARMS || !alarms[idx].used) { *err = "no such alarm"; return false; }
+    alarms[idx].used = false;
+    LB b = lb_new(32); lb_add(&b, "unalarm"); lb_sep(&b); lb_u(&b, (u32)idx); record(b.p);
+    return true;
+}
+
+int alarm_list(Alarm **out, int cap) {
+    int n = 0;
+    for (int i = 0; i < MAX_ALARMS && n < cap; i++) if (alarms[i].used) out[n++] = &alarms[i];
+    return n;
+}
+
+void kernel_poll(void) {
+    const char *err;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        Alarm *a = &alarms[i];
+        if (!a->used || uptime_ticks < a->due) continue;
+        a->due = uptime_ticks + a->period;
+        if (!cell_find(a->cell)) { a->used = false; continue; }
+        cell_send(a->cell, a->body, "clock", &err);
+    }
+}
+
+void kernel_idle(void) {
+    if (!k_background || current) return;              /* never from inside a cell */
+    kernel_poll();
+    bool work = false;
+    for (int i = 0; i < MAX_CELLS; i++) if (cells[i].alive && (cells[i].running || cells[i].in_count)) work = true;
+    if (!work) return;
+    in_background = true;
+    kernel_run(1);
+    in_background = false;
+    if (k_idle_hook) k_idle_hook();
 }
 
 int my_cap(int kind) { Seat *s = seat_find(k_me); return s ? s->caps[kind] : -1; }
@@ -262,10 +363,12 @@ Val *kernel_syscall(Interp *it, Val *cap, const char *op, Val **argv, int argc) 
     }
     switch (c->kind) {
     case K_CONSOLE: {
-        vga_color(C_LCYAN, C_BLACK); kprintf("[%s] ", caller); vga_color(C_GREY, C_BLACK);
-        char buf[200];
-        for (int i = 0; i < argc; i++) { v_show(argv[i], buf, sizeof buf); kprintf("%s%s", i ? " " : "", buf); }
-        kprintf("\n");
+        char line[240]; strcpy(line, "["); strcat(line, caller); strcat(line, "] ");
+        for (int i = 0; i < argc; i++) {
+            usize n = strlen(line); if (i && n + 1 < sizeof line) { line[n++] = ' '; line[n] = 0; }
+            v_show(argv[i], line + n, sizeof line - n);
+        }
+        console_line(C_LCYAN, line);
         return v_nil();
     }
     case K_CLOCK: return v_int((int)k_tick);
@@ -349,7 +452,9 @@ static void run_one_message(Cell *c) {
     c->runs++; c->fuel_used += it.used;
     if (!ok) {
         c->errors++;
-        vga_color(C_YELLOW, C_BLACK); kprintf("[kernel] cell %s stopped: %s\n", c->name, err); vga_color(C_GREY, C_BLACK);
+        char line[200]; strcpy(line, "[kernel] cell "); strcat(line, c->name); strcat(line, " stopped: ");
+        usize n = strlen(line), m = strlen(err); if (n + m >= sizeof line) m = sizeof line - 1 - n; memcpy(line + n, err, m); line[n + m] = 0;
+        console_line(C_YELLOW, line);
     }
     heap_persist_begin();                              /* the arena may be full (that may be why the run ended) */
     LB b = lb_new(256);
@@ -383,6 +488,7 @@ static void task_start(Cell *c) {
 
 int kernel_run(int max_rounds) {
     int rounds = 0;
+    kernel_poll();
     for (;;) {
         int runnable = 0;
         for (int i = 0; i < MAX_CELLS; i++) {
@@ -402,7 +508,7 @@ int kernel_run(int max_rounds) {
             ctx_switch(&sched_sp, c->sp);              /* run the cell until it yields or finishes */
             vm_deadline = 0; vm_preempt = false;
             heap_arena_use(0, 0, 0);
-            if (c->running && runnable > 1) {          /* paused mid-run with others waiting: show the switch */
+            if (c->running && runnable > 1 && !in_background) {   /* paused mid-run with others waiting: show the switch */
                 vga_color(C_DGREY, C_BLACK); kprintf("[sched] %s paused after its slice (round %d)\n", c->name, rounds); vga_color(C_GREY, C_BLACK);
             }
         }
@@ -438,8 +544,29 @@ static bool apply(const char *text) {
         return true;
     }
     if (starts_with(line, "seat|")) {
+        int n = split_fields(line, f, 4);
+        if (n < 2) return false;
+        Seat *s = seat_internal(f[1], &err);
+        if (!s) return false;
+        if (n == 4) { strcpy(s->salt, f[2]); strcpy(s->secret, f[3]); }
+        return true;
+    }
+    if (starts_with(line, "login|")) return true;
+    if (starts_with(line, "alarm|")) {
+        if (split_fields(line, f, 4) != 4) return false;
+        Val *body = v_deserialize(f[3]);
+        if (!body) return false;
+        for (int i = 0; i < MAX_ALARMS; i++) if (!alarms[i].used) {
+            alarms[i].used = true; copy_name(alarms[i].cell, f[1]); alarms[i].period = (u32)atoi(f[2]);
+            alarms[i].due = uptime_ticks + alarms[i].period; alarms[i].body = body;
+            return true;
+        }
+        return false;
+    }
+    if (starts_with(line, "unalarm|")) {
         if (split_fields(line, f, 2) != 2) return false;
-        return seat_internal(f[1], &err) != 0;
+        int i = atoi(f[1]); if (i >= 0 && i < MAX_ALARMS) alarms[i].used = false;
+        return true;
     }
     if (starts_with(line, "put|")) {
         if (split_fields(line, f, 8) != 8) return false;
@@ -500,6 +627,7 @@ static void reset_state(void) {
     store_reset(); caps_reset(); ledger_reset();
     for (int i = 0; i < MAX_CELLS; i++) cells[i].alive = false;
     for (int i = 0; i < MAX_SEATS; i++) seats[i].used = false;
+    for (int i = 0; i < MAX_ALARMS; i++) alarms[i].used = false;
     k_tick = 0; k_me = SHELL;
 }
 

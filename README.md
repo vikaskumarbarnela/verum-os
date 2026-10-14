@@ -156,6 +156,33 @@ subset of the holder's; the new capability's parent chain leads back through
 the delegating cell, so revoking the original revokes the copy. The Python
 version has the same syscall and three tests for it.
 
+### Seats with passphrases, alarms, and background work
+
+`seat bob hunter2` creates a seat that `switch bob hunter2` must unlock;
+only a salted SHA-256 is stored, and every login attempt, failed or not,
+is a ledger event. The hosted kernel has the same (`seat`, `switch`,
+`whoami`, `seats`, 4 tests).
+
+`alarm e 1 "tick"` makes the clock send cell `e` the message `"tick"`
+every second (recorded in the ledger, so it survives a reboot). With
+`bg on`, cells and alarms run while the shell waits for a key: the
+keyboard idle loop hands the CPU to the scheduler one round at a time.
+Background output does not scribble over what you are typing; it goes to
+`log`, and the status bar shows how many lines are waiting.
+
+### Fuzzing and CI
+
+`python -m tests.fuzz --iterations 20000 --seed 7` builds random worlds
+(random cells, grants, links, hostile programs, broken source) and checks
+three invariants on every one: nothing but a VM/capability/kernel error
+ever escapes a run, no cell ever holds a capability it was not granted or
+rights wider than its parent, and the ledger verifies and replays to the
+same state. Its first run found a real containment bug (a value holding a
+capability handle could reach the ledger encoder and crash the kernel);
+both kernels now flatten data crossing into the store or an inbox.
+`.github/workflows/ci.yml` runs the unit tests, a short fuzz, the demo,
+and the bare-metal build on every push.
+
 ### Interrupts, timer and preemptive multitasking on bare metal
 
 `irq.c` installs a GDT/IDT, remaps the PIC, runs the PIT at 100 Hz and takes

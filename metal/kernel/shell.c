@@ -16,7 +16,9 @@ static const char *HELP =
 "  link <a> <b> [label]     let a send to b     revoke <who> <label>\n"
 "  send <cell> <expr|@tag>  queue a message     run [ticks]       drive the scheduler\n"
 "  cells / caps / mem       state               eval <expr>       Verum Script, your caps\n"
-"  seat <name> / seats      another human       switch <name>     take that seat   whoami\n"
+"  seat <name> [pass]       another human       switch <name> [pass]   take that seat   whoami / seats\n"
+"  alarm <cell> <secs> <expr>  the clock sends <expr> every <secs>   alarms / unalarm <k>\n"
+"  bg on|off                run cells while you type (output goes to: log)   log / log clear\n"
 "  ledger [n] / verify      tamper-evident history (persisted to disk)\n"
 "  history / rewind <n>     timeline; go back to entry n (asks; the rest goes to the attic)\n"
 "  attic / restore <k>      branches cut off by rewind; bring one back\n"
@@ -39,10 +41,12 @@ static void status(void) {
     strcat(bar, "  tick "); utoa(k_tick, n); strcat(bar, n);
     strcat(bar, "  up "); utoa(uptime_ms() / 1000, n); strcat(bar, n); strcat(bar, "s");
     strcat(bar, "  disk: ");
-    if (disk_present()) { utoa(disk_entries(), n); strcat(bar, n); strcat(bar, " saved"); if (disk_attic_branches()) { strcat(bar, " +"); utoa(disk_attic_branches(), n); strcat(bar, n); strcat(bar, " attic"); } }
+    if (disk_present()) { utoa(disk_entries(), n); strcat(bar, n); if (disk_attic_branches()) { strcat(bar, "+"); utoa(disk_attic_branches(), n); strcat(bar, n); } }
     else strcat(bar, "none");
+    if (k_background) { strcat(bar, "  bg"); if (bglog_count()) { strcat(bar, " log "); utoa((u32)bglog_count(), n); strcat(bar, n); } }
     vga_status(bar);
 }
+static void status_hook(void) { status(); }
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -87,7 +91,10 @@ static void summarize(const char *text, char *out, usize cap) {
         n = strlen(tmp); Val *d = v_deserialize(f[7]);
         if (d) preview(d, tmp + n, sizeof tmp - n); else strcat(tmp, "?");
     } else if (starts_with(line, "genesis|")) strcpy(tmp, "genesis: shell seated with store console clock kernel");
-    else if (starts_with(line, "seat|")) { split_fields(line, f, 2); strcpy(tmp, "seat "); strcat(tmp, f[1]); }
+    else if (starts_with(line, "seat|")) { split_fields(line, f, 4); strcpy(tmp, "seat "); strcat(tmp, f[1]); }
+    else if (starts_with(line, "login|")) { split_fields(line, f, 3); strcpy(tmp, "login "); strcat(tmp, f[1]); strcat(tmp, f[2][0] == '1' ? " ok" : " FAILED"); }
+    else if (starts_with(line, "alarm|")) { split_fields(line, f, 4); strcpy(tmp, "alarm "); strcat(tmp, f[1]); strcat(tmp, " every "); strcat(tmp, f[2]); strcat(tmp, " ticks"); }
+    else if (starts_with(line, "unalarm|")) { strcpy(tmp, "alarm removed"); }
     else if (starts_with(line, "grant|")) { split_fields(line, f, 7); strcpy(tmp, "grant "); strcat(tmp, f[4]); strcat(tmp, " "); strcat(tmp, f[5]); strcat(tmp, "["); strcat(tmp, f[3]); strcat(tmp, "] by "); strcat(tmp, f[2]); }
     else if (starts_with(line, "mint|")) { split_fields(line, f, 5); strcpy(tmp, "mint cell->"); strcat(tmp, f[2]); strcat(tmp, "[send] for "); strcat(tmp, f[1]); }
     else if (starts_with(line, "spawn|")) { split_fields(line, f, 4); strcpy(tmp, "spawn "); strcat(tmp, f[1]); strcat(tmp, " code "); char h[13]; short_hash(f[2], h, 12); strcat(tmp, h); }
@@ -119,7 +126,7 @@ static void show_cells(void) {
 static void show_seats(void) {
     Seat *ss[MAX_SEATS]; int n = seat_count(ss, MAX_SEATS);
     for (int i = 0; i < n; i++) {
-        kprintf("  %s%s\n", ss[i]->name, strcmp(ss[i]->name, k_me) == 0 ? "  (you)" : "");
+        kprintf("  %s%s%s\n", ss[i]->name, strcmp(ss[i]->name, k_me) == 0 ? "  (you)" : "", ss[i]->secret[0] ? "  [passphrase]" : "");
         for (int k = 0; k < K_COUNT; k++) if (ss[i]->caps[k] >= 0) { char d[96]; cap_describe(cap_at(ss[i]->caps[k]), d, sizeof d); kprintf("      %s\n", d); }
     }
 }
@@ -311,18 +318,45 @@ static bool dispatch(char *line) {
         return true;
     }
     if (!strcmp(cmd, "seat")) {
-        if (argc < 2) { refuse("seat <name>"); return true; }
-        if (!seat_create(argv[1], &err)) refuse(err);
-        else kprintf("seat %s created with NO capabilities. grant %s <cap> [rights], then: switch %s\n", argv[1], argv[1], argv[1]);
+        if (argc < 2) { refuse("seat <name> [passphrase]"); return true; }
+        if (!seat_create(argv[1], argc > 2 ? argv[2] : 0, &err)) refuse(err);
+        else kprintf("seat %s created with NO capabilities%s. grant %s <cap> [rights], then: switch %s\n", argv[1], argc > 2 ? " (passphrase set)" : "", argv[1], argv[1]);
+        return true;
+    }
+    if (!strcmp(cmd, "alarm")) {
+        if (argc < 4) { refuse("alarm <cell> <seconds> <expr>"); return true; }
+        const char *e = rest; for (int i = 0; i < 2; i++) { while (*e && *e != ' ') e++; while (*e == ' ') e++; }
+        Val *body = eval_pure(e, &err);
+        if (!body) { refuse(err); return true; }
+        int k = alarm_add(argv[1], (u32)atoi(argv[2]) * 100, body, &err);
+        if (k < 0) refuse(err); else kprintf("alarm %d: every %ss the clock sends %s a message (bg on to run while idle)\n", k, argv[2], argv[1]);
+        return true;
+    }
+    if (!strcmp(cmd, "alarms")) {
+        Alarm *as[MAX_ALARMS]; int n = alarm_list(as, MAX_ALARMS);
+        if (!n) say("no alarms");
+        for (int i = 0; i < n; i++) { char pv[40]; preview(as[i]->body, pv, sizeof pv); kprintf("  alarm %d: %s every %u ms, next in %u ms: %s\n", (int)(as[i] - as[0]) >= 0 ? i : i, as[i]->cell, as[i]->period * 10, as[i]->due > uptime_ticks ? (as[i]->due - uptime_ticks) * 10 : 0, pv); }
+        return true;
+    }
+    if (!strcmp(cmd, "unalarm")) { if (argc < 2 || !alarm_remove(atoi(argv[1]), &err)) refuse(argc < 2 ? "unalarm <k>" : err); else say("alarm removed"); return true; }
+    if (!strcmp(cmd, "bg")) {
+        if (argc < 2) { kprintf("background execution is %s\n", k_background ? "on" : "off"); return true; }
+        k_background = !strcmp(argv[1], "on");
+        k_idle_hook = status_hook;
+        kprintf("background execution %s: cells and alarms %s while you type; their output goes to `log`\n", k_background ? "on" : "off", k_background ? "run" : "wait");
+        return true;
+    }
+    if (!strcmp(cmd, "log")) {
+        if (argc > 1 && !strcmp(argv[1], "clear")) { bglog_clear(); say("log cleared"); return true; }
+        if (!bglog_count()) say("nothing happened in the background");
+        for (int i = 0; i < bglog_count(); i++) kprintf("  %s\n", bglog_get(i));
         return true;
     }
     if (!strcmp(cmd, "seats")) { show_seats(); return true; }
     if (!strcmp(cmd, "switch")) {
-        if (argc < 2) { refuse("switch <seat>"); return true; }
-        Seat *s = seat_find(argv[1]);
-        if (!s) { refuse("no such seat"); return true; }
-        k_me = s->name;
-        kprintf("you are now %s\n", k_me);
+        if (argc < 2) { refuse("switch <seat> [passphrase]"); return true; }
+        if (!seat_switch(argv[1], argc > 2 ? argv[2] : 0, &err)) refuse(err);
+        else kprintf("you are now %s\n", k_me);
         return true;
     }
     if (!strcmp(cmd, "send")) {

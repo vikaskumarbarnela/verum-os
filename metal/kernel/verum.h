@@ -87,10 +87,14 @@ void  cap_describe(Cap *c, char *out, usize cap);
 void  caps_reset(void);
 
 /* ---------------------------------------------------------------- seats: the humans */
-typedef struct { char name[NAME_LEN]; bool used; int caps[K_COUNT]; } Seat;   /* caps[kind] = index or -1 */
+typedef struct {
+    char name[NAME_LEN]; bool used; int caps[K_COUNT];   /* caps[kind] = index or -1 */
+    char salt[17]; char secret[65];                       /* secret[0] == 0: an open seat */
+} Seat;
 
 Seat *seat_find(const char *name);
-Seat *seat_create(const char *name, const char **err);   /* records; needs the active seat's kernel[mint] */
+Seat *seat_create(const char *name, const char *passphrase, const char **err);   /* needs kernel[mint] */
+bool  seat_switch(const char *name, const char *passphrase, const char **err);   /* records a login event */
 int   seat_count(Seat **out, int cap);
 extern const char *k_me;                                 /* the active seat's name; the shell's "whoami" */
 int   my_cap(int kind);                                  /* the active seat's cap index of that kind, or -1 */
@@ -128,6 +132,22 @@ int   kernel_run(int max_ticks);                         /* rounds of time slice
 Val  *kernel_syscall(Interp *it, Val *cap, const char *op, Val **argv, int argc);
 int   cell_count(Cell **out, int cap);
 bool  kernel_rewind(int upto, const char **err);         /* discarded tail goes to the attic */
+
+/* alarms: the clock sends a cell a message every `period` ticks (10 ms each) */
+#define MAX_ALARMS 8
+typedef struct { bool used; char cell[NAME_LEN]; u32 period; u32 due; Val *body; } Alarm;
+int   alarm_add(const char *cell, u32 period, Val *body, const char **err);     /* needs kernel[mint] */
+bool  alarm_remove(int idx, const char **err);
+int   alarm_list(Alarm **out, int cap);
+void  kernel_poll(void);                                 /* fire due alarms */
+
+/* background execution: while the shell waits for a key, run cells and alarms */
+extern bool k_background;                                /* `bg on` */
+extern void (*k_idle_hook)(void);                        /* the shell refreshes its status bar here */
+void  kernel_idle(void);                                 /* called from the keyboard idle loop */
+int   bglog_count(void);                                 /* console lines produced in the background */
+const char *bglog_get(int i);
+void  bglog_clear(void);
 
 /* attic: branches cut off by rewind, restorable when the ledger is back at their start */
 typedef struct { u32 from, count, uptime; const char *first; } Branch;

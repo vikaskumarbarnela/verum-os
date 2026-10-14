@@ -128,6 +128,8 @@ SCRIPT = [
     "seat alice", "grant alice store get,find", "grant alice console print", "switch alice",
     "note alice was here", "spawn x wordcount", "grant wc store get", "whoami", "switch shell", "find note",
     "@dump seats",
+    "seat bob hunter2", "switch bob wrong", "switch bob", "switch bob hunter2", "whoami", "switch shell", "ledger 4",
+    "@dump login",
     "spawn e echo", "grant e console print", "spawn d deleg", "grant d store get,delegate", "link d e next",
     "send d \"get,put\"", "run", "send d \"get\"", "run", "cells",
     "@dump delegate",
@@ -136,6 +138,10 @@ SCRIPT = [
     "@dump preempt",
     "cells",
     "@dump preempt2",
+    "alarm e 1 \"tick\"", "alarms", "bg on",
+    "@wait 3.5",
+    "log", "alarms", "bg off", "unalarm 0",
+    "@dump alarm",
     "uptime", "trap",
     "@dump trap",
 ]
@@ -174,6 +180,9 @@ def test(elf: str) -> None:
         if line == "@reboot":           # power-cycle: only the disk carries state across this
             shutdown()
             boot()
+            continue
+        if line.startswith("@wait"):    # let background work happen
+            time.sleep(float(line.split()[1]))
             continue
         for key in sendkeys(line + "\n"):
             mon(key, 0.02)

@@ -114,12 +114,16 @@ void irq_init(void) {
     __asm__ volatile("sti");
 }
 
-/* Next raw scancode from the keyboard IRQ ring; sleeps the CPU while empty. */
+/* Next raw scancode from the keyboard IRQ ring. While the ring is empty the
+   kernel gets the CPU for background work, then the CPU halts until an IRQ. */
+extern void kernel_idle(void);
 u8 kbd_scancode(void) {
     for (;;) {
         __asm__ volatile("cli");
         if (ktail != khead) { u8 sc = kbuf[ktail]; ktail = (ktail + 1) % KBUF; __asm__ volatile("sti"); return sc; }
-        __asm__ volatile("sti; hlt");
+        __asm__ volatile("sti");
+        kernel_idle();
+        __asm__ volatile("hlt");
     }
 }
 
