@@ -39,6 +39,9 @@ VERUM shell - intents you can state
   ledger [n]                     last n ledger events
   verify                         check the ledger hash chain
   rewind <seq>                   fork the whole system back to ledger entry <seq>
+  seat <name> [passphrase]       another human, with no capabilities (grant to them like a cell)
+  switch <name> [passphrase]     take that seat; every intent is then checked against its caps
+  seats / whoami                 list seats and their capabilities; who is at the keyboard
   help / quit
 """
 
@@ -66,9 +69,13 @@ class Shell:
                 return cand
         raise KernelError(f"no code object {ref!r}")
 
+    @property
+    def me(self) -> str:
+        return self.k.me
+
     def _cap_token(self, holder: str, label: str) -> str:
-        if holder == SHELL:
-            tok = self.k.shell_caps.get(label)
+        if holder in self.k.seats:
+            tok = self.k.seats[holder].caps.get(label)
         else:
             cell = self.k.cells.get(holder)
             handle = cell.env.vars.get(label) if cell else None
@@ -124,7 +131,8 @@ class Shell:
         text = line.split(None, 1)[1] if " " in line else ""
         if not text:
             raise ValueError("note needs text")
-        h = self.k.put("note", text, ["note"], by=SHELL, op="note")
+        self.k.caps.check(self.k._cap_of(self.me, "store"), self.me, "put")
+        h = self.k.put("note", text, ["note"], by=self.me, op="note")
         self.out(f"stored note {h[:12]}")
 
     def cmd_code(self, a, line):
@@ -132,7 +140,8 @@ class Shell:
         with open(path, encoding="utf-8") as f:
             src = f.read()
         vm.parse(src)                          # syntax check before it enters the store
-        h = self.k.put("code", src, ["code", name], by=SHELL, op="code")
+        self.k.caps.check(self.k._cap_of(self.me, "store"), self.me, "put")
+        h = self.k.put("code", src, ["code", name], by=self.me, op="code")
         self.out(f"stored code {name} as {h[:12]}")
 
     def cmd_find(self, a, line):
@@ -162,29 +171,29 @@ class Shell:
 
     def cmd_spawn(self, a, line):
         name, ref = a[0], a[1]
-        self.k.spawn(name, self._code_hash(ref), by=SHELL)
+        self.k.spawn(name, self._code_hash(ref), by=self.me)
         self.out(f"cell {name} spawned with NO capabilities. Use: grant {name} <cap> [rights]")
 
     def cmd_grant(self, a, line):
         cell, label = a[0], a[1]
-        parent = self._cap_token(SHELL, label)
+        parent = self._cap_token(self.me, label)
         src = self.k.caps.get(parent)
         rights = a[2].split(",") if len(a) > 2 else sorted(src.rights)
-        cap = self.k.grant(parent, SHELL, rights, cell, label)
+        cap = self.k.grant(parent, self.me, rights, cell, label)
         self.out(f"granted {cap.describe()}")
 
     def cmd_link(self, a, line):
         src, target = a[0], a[1]
         label = a[2] if len(a) > 2 else target
-        cap = self.k.mint_cell_cap(target, SHELL, f"cell:{target}")
-        self.k.grant(cap.token, SHELL, ["send"], src, label)
+        cap = self.k.mint_cell_cap(target, self.me, f"cell:{target}")
+        self.k.grant(cap.token, self.me, ["send"], src, label)
         self.out(f"{src} may now send to {target} (bound as {label})")
 
     def cmd_send(self, a, line):
         cell = a[0]
         expr = line.split(None, 2)[2] if len(line.split(None, 2)) > 2 else "nil"
         body = self._eval_data(expr)
-        self.k.send(cell, body, by=SHELL)
+        self.k.send(cell, body, by=self.me)
         self.out(f"queued for {cell}: {vm.show(body)}")
 
     def cmd_run(self, a, line):
@@ -200,28 +209,48 @@ class Shell:
                 self.out(f"      {d}")
 
     def cmd_caps(self, a, line):
-        for label, tok in self.k.shell_caps.items():
+        for label, tok in self.k.my_caps.items():
             self.out(f"  {label:<14} {self.k.caps.get(tok).describe()}")
+
+    def cmd_seat(self, a, line):
+        name = a[0]
+        passphrase = a[1] if len(a) > 1 else None
+        self.k.seat_create(name, self.me, passphrase)
+        self.out(f"seat {name} created with NO capabilities{' (passphrase set)' if passphrase else ''}. "
+                 f"grant {name} <cap> [rights], then: switch {name}")
+
+    def cmd_switch(self, a, line):
+        self.k.switch(a[0], a[1] if len(a) > 1 else None)
+        self.out(f"you are now {self.me}")
+
+    def cmd_whoami(self, a, line):
+        self.out(self.me)
+
+    def cmd_seats(self, a, line):
+        for name, s in self.k.seats.items():
+            self.out(f"  {name}{'  (you)' if name == self.me else ''}{'  [passphrase]' if s.secret else ''}")
+            for label, tok in s.caps.items():
+                self.out(f"      {label}={self.k.caps.get(tok).describe()}")
 
     def cmd_revoke(self, a, line):
         holder, label = a[0], a[1]
         tok = self._cap_token(holder, label)
-        n = self.k.revoke(tok, SHELL)
+        n = self.k.revoke(tok, self.me)
         self.out(f"revoked {len(n)} capability(ies)")
 
     def cmd_kill(self, a, line):
-        self.k.kill(a[0], SHELL)
+        self.k.kill(a[0], self.me)
         self.out(f"cell {a[0]} removed")
 
     def cmd_eval(self, a, line):
         expr = line.split(None, 1)[1]
-        env = vm.new_env({label: vm.CapHandle(tok, label) for label, tok in self.k.shell_caps.items()})
+        env = vm.new_env({label: vm.CapHandle(tok, label) for label, tok in self.k.my_caps.items()})
         used: List[str] = []
 
         def syscall(handle, op, args):
             used.append(f"{handle.label}.{op}")
             try:
-                return self.k.syscall(SHELL, handle.token, op, args)
+                return self.k.syscall(self.me, handle.token, op, args)
             except (CapError, KernelError) as e:
                 raise vm.VMError(f"denied: {e}")
 
@@ -285,7 +314,7 @@ def repl(state_dir: Optional[str]) -> None:
     sh.out("no files. no root. no apps. state what you want; type help.")
     while True:
         try:
-            line = input("verum> ")
+            line = input(f"{sh.me}> ")
         except (EOFError, KeyboardInterrupt):
             print()
             break

@@ -130,6 +130,51 @@ class TestDelegation(Base):
         self.assertTrue(any("lacks right 'delegate'" in l for l in self.lines))
 
 
+class TestSeats(Base):
+    def test_seat_starts_with_nothing_and_cannot_spawn(self):
+        self.k.seat_create("alice", SHELL)
+        with self.assertRaises(CapError):
+            self.k.spawn("x", self.code("shout"), "alice")
+        with self.assertRaises(CapError):
+            self.k._cap_of("alice", "store")
+
+    def test_grant_to_seat_and_act_as_seat(self):
+        self.k.seat_create("alice", SHELL)
+        self.k.grant(self.k.shell_caps["store"], SHELL, ["get", "find"], "alice", "store")
+        self.k.switch("alice")
+        self.assertEqual(self.k.me, "alice")
+        self.assertEqual(self.k.caps.get(self.k.my_caps["store"]).rights, frozenset({"get", "find"}))
+        with self.assertRaises(CapError):                       # she cannot put
+            self.k.caps.check(self.k.my_caps["store"], "alice", "put")
+        self.k.spawn("wc", self.code("wordcount"), SHELL)
+        cap = self.k.grant(self.k.my_caps["store"], "alice", ["get"], "wc", "store")   # narrower, from her own
+        self.assertEqual(self.k.caps.get(cap.parent).holder, "alice")
+        with self.assertRaises(CapError):                       # cannot widen
+            self.k.grant(self.k.my_caps["store"], "alice", ["put"], "wc", "store2")
+
+    def test_passphrase(self):
+        self.k.seat_create("bob", SHELL, passphrase="hunter2")
+        with self.assertRaises(CapError):
+            self.k.switch("bob", "wrong")
+        with self.assertRaises(CapError):
+            self.k.switch("bob")
+        self.assertEqual(self.k.me, SHELL)
+        self.k.switch("bob", "hunter2")
+        self.assertEqual(self.k.me, "bob")
+        logins = [e.event for e in self.k.ledger.entries if e.event["type"] == "login"]
+        self.assertEqual([e["ok"] for e in logins], [False, False, True])  # failures are audited too
+        self.assertNotIn("hunter2", str(self.k.ledger.entries))             # only the salted hash is stored
+
+    def test_seats_survive_replay(self):
+        self.k.seat_create("bob", SHELL, passphrase="pw")
+        self.k.grant(self.k.shell_caps["console"], SHELL, ["print"], "bob", "console")
+        k2 = self.k.fork(len(self.k.ledger.entries))
+        self.assertIn("bob", k2.seats)
+        self.assertTrue(k2.seats["bob"].check("pw"))
+        self.assertFalse(k2.seats["bob"].check("nope"))
+        self.assertEqual(k2.seats["bob"].caps["console"], self.k.seats["bob"].caps["console"])
+
+
 class TestMalware(Base):
     def setUp(self):
         super().setUp()

@@ -173,8 +173,7 @@ static Val *persist_rec(Val *v) {
     case T_SYM: return v_sym(v->s);
     case T_LIST: { Val *l = v_list(v->list.n); for (int i = 0; i < v->list.n; i++) list_push(l, persist_rec(v->list.items[i])); return l; }
     case T_DICT: { Val *d = v_dict(); for (int i = 0; i < v->dict.n; i++) dict_set(d, v->dict.keys[i], persist_rec(v->dict.vals[i])); return d; }
-    case T_CAP: return v_cap(v->cap.token, kstrdup(v->cap.label));
-    default: return v_nil();                                  /* closures and builtins do not outlive a run */
+    default: return v_nil();                                  /* capability handles, closures and builtins do not travel */
     }
 }
 Val *v_persist(Val *v) { heap_persist_begin(); Val *r = persist_rec(v); heap_persist_end(); return r; }

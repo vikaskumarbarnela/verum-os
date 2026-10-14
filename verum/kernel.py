@@ -15,7 +15,9 @@ fresh kernel (a fork). Nothing is ever edited in place.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import secrets
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Deque, Dict, List, Optional
@@ -45,17 +47,36 @@ class Cell:
     fuel_used: int = 0
 
 
+@dataclass
+class Seat:
+    """A human principal. `caps` maps label -> token; `secret` is a salted hash, or None for an open seat."""
+    name: str
+    caps: Dict[str, str] = field(default_factory=dict)
+    salt: str = ""
+    secret: Optional[str] = None
+
+    def check(self, passphrase: Optional[str]) -> bool:
+        if self.secret is None:
+            return True
+        return passphrase is not None and _hash_secret(self.salt, passphrase) == self.secret
+
+
+def _hash_secret(salt: str, passphrase: str) -> str:
+    return hashlib.sha256((salt + ":" + passphrase).encode("utf-8")).hexdigest()
+
+
 class Kernel:
     def __init__(self, state_dir: Optional[str] = None, console: Optional[Callable[[str], None]] = None) -> None:
         self.state_dir = state_dir
         self.store = Store()
         self.caps = CapTable()
         self.cells: Dict[str, Cell] = {}
+        self.seats: Dict[str, Seat] = {}
+        self.me = SHELL                        # the seat at the keyboard
         self.tick = 0
         self.console_lines: List[str] = []
         self._console = console
         self._replaying = False
-        self.shell_caps: Dict[str, str] = {}   # label -> token, the human's seat
 
         ledger_path = None
         if state_dir:
@@ -67,6 +88,15 @@ class Kernel:
             self._replay(self.ledger.entries)
         else:
             self._genesis()
+
+    @property
+    def shell_caps(self) -> Dict[str, str]:
+        """label -> token for the genesis seat (kept for callers that predate seats)."""
+        return self.seats[SHELL].caps
+
+    @property
+    def my_caps(self) -> Dict[str, str]:
+        return self.seats[self.me].caps
 
     # ------------------------------------------------------------------ events
 
@@ -86,15 +116,20 @@ class Kernel:
         t = ev["type"]
         if t == "genesis":
             self.tick = ev["tick"]
+            self.seats[SHELL] = Seat(SHELL)
             for label, c in ev["caps"].items():
                 cap = self.caps.mint(c["kind"], c["rights"], SHELL, c.get("target"), token=c["token"])
                 self.shell_caps[label] = cap.token
+        elif t == "seat":
+            self.seats[ev["name"]] = Seat(ev["name"], salt=ev.get("salt", ""), secret=ev.get("secret"))
+        elif t == "login":
+            pass                                   # audit only: who sat down, and whether it worked
         elif t == "put":
             self.store.put(Obj.from_dict(ev["obj"]))
         elif t == "mint":
             self.caps.mint(ev["kind"], ev["rights"], ev["holder"], ev.get("target"), token=ev["token"])
-            if ev["holder"] == SHELL:
-                self.shell_caps[ev["label"]] = ev["token"]
+            if ev["holder"] in self.seats:
+                self.seats[ev["holder"]].caps[ev["label"]] = ev["token"]
         elif t == "grant":
             self.caps.attenuate(ev["parent"], ev["by"], ev["rights"], ev["holder"], new_token=ev["token"])
             self._bind(ev["holder"], ev["label"], ev["token"])
@@ -131,11 +166,38 @@ class Kernel:
             "clock":   {"kind": "clock",   "rights": sorted(RIGHTS["clock"])},
             "kernel":  {"kind": "kernel",  "rights": sorted(RIGHTS["kernel"])},
         }
+        self.seats[SHELL] = Seat(SHELL)
         for label, c in caps.items():
             cap = self.caps.mint(c["kind"], c["rights"], SHELL)
             c["token"] = cap.token
             self.shell_caps[label] = cap.token
         self._record({"type": "genesis", "tick": 0, "caps": caps})
+
+    # ------------------------------------------------------------------ seats
+
+    def seat_create(self, name: str, by: str, passphrase: Optional[str] = None) -> Seat:
+        """Another human. Starts with no capabilities. Needs the creator's kernel[mint]."""
+        self.caps.check(self._cap_of(by, "kernel"), by, "mint")
+        if name in self.seats or name in self.cells:
+            raise KernelError(f"the name {name!r} is taken")
+        if not name or not name.replace("_", "").isalnum():
+            raise KernelError("seat names are alphanumeric")
+        salt = secrets.token_hex(8)
+        seat = Seat(name, salt=salt, secret=_hash_secret(salt, passphrase) if passphrase else None)
+        self.seats[name] = seat
+        self._record({"type": "seat", "name": name, "salt": salt, "secret": seat.secret, "by": by})
+        return seat
+
+    def switch(self, name: str, passphrase: Optional[str] = None) -> None:
+        """Put a seat at the keyboard. A seat with a passphrase proves identity, not just authority."""
+        seat = self.seats.get(name)
+        if seat is None:
+            raise KernelError(f"no seat {name!r}")
+        ok = seat.check(passphrase)
+        self._record({"type": "login", "seat": name, "ok": ok, "tick": self.tick})
+        if not ok:
+            raise CapError(f"wrong passphrase for seat {name!r}")
+        self.me = name
 
     # ------------------------------------------------------------------ store ops
 
@@ -148,8 +210,8 @@ class Kernel:
     # ------------------------------------------------------------------ cells
 
     def _bind(self, holder: str, label: str, token: str) -> None:
-        if holder == SHELL:
-            self.shell_caps[label] = token
+        if holder in self.seats:
+            self.seats[holder].caps[label] = token
         else:
             self.cells[holder].env.vars[label] = vm.CapHandle(token, label)
 
@@ -185,8 +247,8 @@ class Kernel:
 
     def grant(self, parent_token: str, by: str, rights, holder: str, label: str) -> Cap:
         """Attenuate one of `by`'s capabilities and hand it to `holder` under `label`."""
-        if holder != SHELL and holder not in self.cells:
-            raise KernelError(f"no cell {holder!r}")
+        if holder not in self.seats and holder not in self.cells:
+            raise KernelError(f"no cell or seat {holder!r}")
         cap = self.caps.attenuate(parent_token, by, rights, holder)
         self._bind(holder, label, cap.token)
         self._record({"type": "grant", "parent": parent_token, "by": by, "rights": sorted(cap.rights),
@@ -213,18 +275,20 @@ class Kernel:
     def send(self, to: str, body: Any, by: str, token: Optional[str] = None) -> None:
         if to not in self.cells:
             raise KernelError(f"no cell {to!r}")
-        if by != SHELL:
+        if by not in self.seats:
             cap = self.caps.check(token, by, "send")
             if cap.target != to:
                 raise CapError("capability targets a different cell")
+        body = vm.plain(body)                      # handles and closures do not travel between cells
         self.cells[to].inbox.append((by, body))
         self._record({"type": "send", "from": by, "to": to, "body": body})
 
     def _cap_of(self, who: str, kind: str) -> str:
-        if who == SHELL:
-            tok = self.shell_caps.get(kind)
+        seat = self.seats.get(who)
+        if seat is not None:
+            tok = seat.caps.get(kind)
             if tok is None:
-                raise CapError(f"shell holds no {kind} capability")
+                raise CapError(f"{who} holds no {kind} capability")
             return tok
         raise CapError(f"{who} must present a capability explicitly")
 
@@ -280,7 +344,7 @@ class Kernel:
         if op == "put":
             if len(args) < 2:
                 raise KernelError('put: (call store "put" kind data [tags] [inputs])')
-            kind, data = str(args[0]), args[1]
+            kind, data = str(args[0]), vm.plain(args[1])
             tags = [str(t) for t in (args[2] if len(args) > 2 and isinstance(args[2], list) else [])]
             inputs = [str(i) for i in (args[3] if len(args) > 3 and isinstance(args[3], list) else [])]
             for i in inputs:
@@ -344,7 +408,8 @@ class Kernel:
         k = Kernel.__new__(Kernel)
         k.state_dir = state_dir
         k.store, k.caps, k.cells, k.tick = Store(), CapTable(), {}, 0
-        k.console_lines, k._console, k._replaying, k.shell_caps = [], self._console, False, {}
+        k.seats, k.me = {}, SHELL
+        k.console_lines, k._console, k._replaying = [], self._console, False
         path = None
         if state_dir:
             os.makedirs(state_dir, exist_ok=True)

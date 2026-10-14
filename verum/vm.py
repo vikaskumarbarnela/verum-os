@@ -170,6 +170,18 @@ class Env:
         raise VMError(f"unbound symbol {name!r}")
 
 
+def plain(v: Any) -> Any:
+    """Plain data only: what may cross into the store or another cell's inbox.
+    Capability handles and closures do not travel; they become nil."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, list):
+        return [plain(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): plain(x) for k, x in v.items()}
+    return None
+
+
 def show(v: Any) -> str:
     """Human-readable rendering used by the console and the shell."""
     if v is None:
