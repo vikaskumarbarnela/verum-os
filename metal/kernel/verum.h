@@ -178,6 +178,19 @@ typedef struct { const char *name; const char *src; } BuiltinCell;
 extern const BuiltinCell BUILTIN_CELLS[];
 extern const int N_BUILTIN_CELLS;
 
+/* ---------------------------------------------------------------- browser: पत्र pages (browser.c, pages.c) */
+typedef struct { const char *name; const char *src; } BuiltinPage;
+extern const BuiltinPage BUILTIN_PAGES[];
+extern const int N_BUILTIN_PAGES;
+bool  browser_open(const char *target, const char **err);    /* hash | tag:<t> | page:<title> */
+bool  browser_follow(int n, const char **err);
+bool  browser_back(const char **err);
+void  browser_links(void);
+bool  browser_allow(const char **err);                      /* run the page's cell with its declared caps */
+bool  browser_has_page(void);
+void  say_line(const char *s);
+void  strncat_safe(char *d, const char *s, usize n);
+
 /* ---------------------------------------------------------------- shell */
 void shell_main(void);
 

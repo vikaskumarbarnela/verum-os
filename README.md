@@ -278,6 +278,41 @@ right-hand rows: the Python program can read any file and open any socket
 on the machine; the cell cannot do anything it was not handed, cannot run
 or allocate without limit, and leaves a provable record of what it did.
 
+### The browser: पत्र pages (both kernels)
+
+Not a web browser — a browser native to this OS, where the web's problems
+cannot arise. A page (kind `patra`) is an ordinary content-addressed object:
+its hash is its address, so it cannot change under you, and `why` says who
+made it from what. A link is a hash, `tag:<name>` or `page:<title>`, and
+resolves to exact content or nothing. A page may carry a script; it runs
+only as a cell, only on `allow`, with exactly the capabilities it declared.
+
+```
+# home                       heading; the first one is the title (and a tag)
+plain paragraphs             * list items     > quotations     ``` preformatted ```
+=> page:about what this is   links: hash | tag:note | page:title
+@cell ganana store[get,put] console[print]     a cell the page would like to run
+```
+
+```
+shell> open                 (page:home)
+shell> follow 2             -> page:sanskrit, which carries the Sanskrit word counter
+  this page would like to run a cell (ganana) with: store[get,put] console[print]
+shell> allow
+cell page-f62a3c runs with: store[get,put] console[print]
+[page-f62a3c] शब्दाः 106 अक्षराणि 1008      it counted the words of its own page
+shell> follow 1             -> tag:stats, an index page made on the spot
+```
+
+`publish <file.patra>` (hosted) and `page <title>` (bare metal, typed line
+by line) add pages; `pages/` holds home, about and sanskrit, embedded in the
+bare-metal image. There are no cookies or trackers because a page holds no
+capability it was not given; history is the ledger. Five tests cover
+parsing, provenance, navigation, broken links, and that `allow` grants only
+what was declared. The open web stays reachable only through a future
+read-only gateway cell on the hosted side; implementing HTTPS in the kernel
+is deliberately out of scope.
+
 ### The debugger (D1, both kernels)
 
 The same commands work on bare metal (`break`, `unbreak`, `step`,

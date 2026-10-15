@@ -25,7 +25,8 @@ static const char *HELP =
 "  dash                     panel view          demo              guided tour\n"
 "  uptime                   timer since boot    trap              raise a CPU exception (halts)\n"
 "  lipi on|off / lipi <w>   type Sanskrit on a Latin keyboard: paribhASA -> परिभाषा;  :word forces it\n"
-"  break <cell> <line> / unbreak <cell>   step / continue / inspect / stack / where   profile on|off|show\n";
+"  break <cell> <line> / unbreak <cell>   step / continue / inspect / stack / where   profile on|off|show\n"
+"  open [hash|tag:x|page:title]   browser: follow <n> / back / links / allow      page <title>  write one\n";
 
 static bool lipi_on = false;                       /* `lipi on`: typed Latin becomes Devanagari */
 /* words that stay Latin under lipi: the English surface of Verum Script, and anything that already names
@@ -275,6 +276,29 @@ static bool dispatch(char *line) {
     if (!strcmp(cmd, "demo")) { demo(); return true; }
     if (!strcmp(cmd, "dash")) { dash(); return true; }
     if (!strcmp(cmd, "whoami")) { kprintf("%s\n", k_me); return true; }
+    /* ---- the browser ---- */
+    if (!strcmp(cmd, "open")) { if (!browser_open(argc > 1 ? argv[1] : "page:home", &err)) refuse(err); return true; }
+    if (!strcmp(cmd, "follow")) { if (argc < 2 || !browser_follow(atoi(argv[1]), &err)) refuse(argc < 2 ? "follow <n>" : err); return true; }
+    if (!strcmp(cmd, "back")) { if (!browser_back(&err)) refuse(err); return true; }
+    if (!strcmp(cmd, "links")) { browser_links(); return true; }
+    if (!strcmp(cmd, "allow")) { if (!browser_allow(&err)) refuse(err); return true; }
+    if (!strcmp(cmd, "page")) {
+        if (argc < 2) { refuse("page <title>   then type the page, one line at a time, and a lone . to finish"); return true; }
+        if (!i_may(K_STORE, R_PUT)) { refuse("you hold no store[put] capability"); return true; }
+        char *buf = kalloc(VS_MAX_SIZE); strcpy(buf, "# "); strcat(buf, argv[1]); strcat(buf, "\n\n");
+        say("type the page; a line with only . ends it");
+        for (;;) {
+            char l[LINE]; vga_puts("| "); kbd_readline(l, sizeof l);
+            if (!strcmp(l, ".")) break;
+            if (lipi_on) lipi_line(l, sizeof l, keep_latin);
+            if (strlen(buf) + strlen(l) + 2 >= VS_MAX_SIZE) { refuse("page is full"); break; }
+            strcat(buf, l); strcat(buf, "\n");
+        }
+        const char *tags[2] = { "patra", argv[1] };
+        int i = kernel_put("patra", v_str(buf), tags, 2, k_me, "publish", 0, 0);
+        if (i < 0) refuse("store full"); else { char h[13]; short_hash(store_get(i)->hash, h, 12); kprintf("published %s as %s  (open page:%s)\n", argv[1], h, argv[1]); }
+        return true;
+    }
     /* ---- D1 debugger ---- */
     if (!strcmp(cmd, "break")) {
         if (argc < 3) { refuse("break <cell> <line>"); return true; }

@@ -570,6 +570,17 @@ static void genesis(void) {
         const char *tags[2] = { "code", BUILTIN_CELLS[i].name };
         kernel_put("code", v_str(BUILTIN_CELLS[i].src), tags, 2, SHELL, "code", 0, 0);
     }
+    for (int i = 0; i < N_BUILTIN_PAGES; i++) {
+        const char *tags[2] = { "patra", BUILTIN_PAGES[i].name };
+        kernel_put("patra", v_str(BUILTIN_PAGES[i].src), tags, 2, SHELL, "publish", 0, 0);
+    }
+}
+
+/* is a page with this title already stored? */
+static bool page_known(const char *title) {
+    int hits[64]; int n = store_find(title, hits, 64);
+    for (int i = 0; i < n; i++) if (strcmp(store_get(hits[i])->kind, "patra") == 0) return true;
+    return false;
 }
 
 static bool apply(const char *text) {
@@ -703,6 +714,12 @@ void kernel_boot(void) {
                     const char *tags[2] = { "code", BUILTIN_CELLS[i].name };
                     kernel_put("code", v_str(BUILTIN_CELLS[i].src), tags, 2, SHELL, "code", 0, 0);
                     kprintf("[disk] new built-in program registered: %s\n", BUILTIN_CELLS[i].name);
+                }
+            for (int i = 0; i < N_BUILTIN_PAGES; i++)
+                if (!page_known(BUILTIN_PAGES[i].name)) {
+                    const char *tags[2] = { "patra", BUILTIN_PAGES[i].name };
+                    kernel_put("patra", v_str(BUILTIN_PAGES[i].src), tags, 2, SHELL, "publish", 0, 0);
+                    kprintf("[disk] new built-in page registered: %s\n", BUILTIN_PAGES[i].name);
                 }
             return;
         }
