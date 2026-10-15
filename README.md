@@ -1,10 +1,19 @@
 # VERUM OS
 
-A small operating system built on four rules that Windows, macOS/iOS, Android
-and Linux all break. Each rule removes an entire class of attack *by
-construction* instead of by patching, and each one is also what makes the
-system good for real work: everything you make is reproducible, traceable and
-undoable.
+A small operating system for running code you do not trust, seeing exactly
+what it touched, and proving what it produced. It is built on four rules that
+Windows, macOS/iOS, Android and Linux all break. Each rule removes an entire
+class of attack *by construction* instead of by patching, and each one is also
+what makes the system good for real work: everything you make is
+reproducible, traceable and undoable.
+
+**What is new here, and what is not.** None of the four rules is original:
+capability-only authority is KeyKOS/EROS/seL4/Fuchsia; content addressing is
+Unison and Nix; the ledger-as-system is Urbit and event sourcing; fuel is
+Ethereum gas and Wasmtime fuel. VERUM is a *synthesis* of those four in one
+small system, hosted and on bare metal, with per-object provenance, a fuzzer
+that attacks its invariants, and a Sanskrit surface language. See
+[Prior art](#prior-art) below for the citations.
 
 ```
 python -m verum demo      # guided tour (throwaway state)
@@ -318,6 +327,45 @@ the run (objects put in the store, message bodies, ledger text, capability
 bindings) are deep-copied into the persistent heap. A run that fills its
 arena ends with `memory budget exceeded`, which is now the real memory bound
 (fuel still bounds steps at 2M).
+
+## Prior art
+
+VERUM stands on established ideas; this is where each one comes from.
+
+- **Capabilities, no ambient authority:** Dennis & Van Horn (1966); the
+  Cambridge CAP; [KeyKOS](https://wikipedia.com/wiki/KeyKOS) and
+  [EROS](https://en.wikipedia.org/wiki/EROS_(microkernel)) (Shapiro);
+  seL4; [Fuchsia](https://fuchsia.dev/docs/concepts/principles/secure)
+  ("a new process has no capabilities"); CHERI in hardware. VERUM's model is
+  textbook KeyKOS lineage.
+- **Content-addressed, immutable objects:**
+  [Unison](https://www.unison-lang.org/docs/the-big-idea/) (definitions
+  named by the hash of their syntax tree), Nix's content-addressed store,
+  IPFS, Git.
+- **The ledger is the system; boot is replay:**
+  [Urbit/Arvo](https://github.com/endplay/omniplay/issues/3) (a
+  deterministic event log from which all state is a pure function), and
+  event sourcing generally. Urbit is VERUM's closest relative overall.
+- **Fuel-bounded execution:** Ethereum gas, Erlang reductions,
+  [Wasmtime fuel](https://agentpatterns.ai/security/wasm-sandbox-agent-code-execution/).
+- **Programming in Sanskrit:** several projects precede this one, among them
+  [Sankode](https://github.com/tovganesh/sankode),
+  [Vedic](https://github.com/vedic-lang),
+  [VakyaLang](https://dev.to/rajmitra/vakyalang-a-real-programming-language-where-sanskrit-is-the-code-30mj)
+  and [Sanskriti](https://github.com/megaketu555/sanskriti). What VERUM adds
+  is a Sanskrit surface over a canonical core (same hash, same provenance as
+  the English program), on an OS, with a bare-metal Devanagari console.
+- **Case-marked arguments (the S3 idea):** Rick Briggs,
+  [*Knowledge Representation in Sanskrit and Artificial Intelligence*](https://ojs.aaai.org//index.php/aimagazine/article/view/466)
+  (AI Magazine, 1985); Damian Conway's
+  [Perligata](https://web.eecs.umich.edu/~imarkov/Perligata.html) (2000),
+  Perl in Latin with arguments bound by case ending; and
+  [*The Karaka Calling Convention*](https://zenodo.org/records/21916088)
+  (2026), six Pāṇinian roles carried morphologically, with a reference
+  implementation. S3 will build on that paper and put the new work where the
+  gap is: kāraka roles at the operating-system boundary, where the
+  instrument role is a capability and the compiler checks roles against
+  grants.
 
 ## Honest limits
 
