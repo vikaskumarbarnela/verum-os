@@ -297,6 +297,7 @@ static Val *read_form(void) {
         tok[n++] = *rd++;
     tok[n] = 0;
     sanskrit_canonical(tok, sizeof tok);          /* संस्कृतलिपि: Sanskrit words and digits become canonical */
+    n = strlen(tok);                              /* a Devanagari digit shrank from 3 bytes to 1 */
     if (strcmp(tok, "true") == 0) return v_bool(true);
     if (strcmp(tok, "false") == 0) return v_bool(false);
     if (strcmp(tok, "nil") == 0) return v_nil();

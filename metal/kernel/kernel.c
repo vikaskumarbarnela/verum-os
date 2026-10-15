@@ -434,6 +434,7 @@ void task_yield(void) {
     Cell *c = current;
     if (!c) return;                                    /* shell-side eval: nothing to switch to */
     c->slices++;
+    if (c->arena_used > c->arena_peak) c->arena_peak = c->arena_used;
     current = 0;
     ctx_switch(&c->sp, sched_sp);                      /* ...and we come back here when rescheduled */
 }
@@ -450,6 +451,7 @@ static void run_one_message(Cell *c) {
     if (!handler || handler->t != T_FN) { ok = false; err = "cell defines no (on-message from body)"; }
     else if (!vs_call(&it, handler, args, 2)) { ok = false; err = it.error; }
     c->mid_run = false; c->it = 0;
+    if (c->arena_used > c->arena_peak) c->arena_peak = c->arena_used;
     c->runs++; c->fuel_used += it.used;
     if (!ok) {
         c->errors++;
@@ -659,6 +661,13 @@ void kernel_boot(void) {
             int n = replay_text(all, MAX_LEDGER, false);
             char why[80]; ledger_verify(why, sizeof why);
             kprintf("[disk] replayed %d ledger entries: %s; attic holds %u branch(es)\n", n, why, disk_attic_branches());
+            /* a newer kernel may carry built-in programs this disk has never seen: register them now */
+            for (int i = 0; i < N_BUILTIN_CELLS; i++)
+                if (store_find_code(BUILTIN_CELLS[i].name) < 0) {
+                    const char *tags[2] = { "code", BUILTIN_CELLS[i].name };
+                    kernel_put("code", v_str(BUILTIN_CELLS[i].src), tags, 2, SHELL, "code", 0, 0);
+                    kprintf("[disk] new built-in program registered: %s\n", BUILTIN_CELLS[i].name);
+                }
             return;
         }
         kprintf("[disk] present but unreadable; starting from genesis\n");

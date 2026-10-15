@@ -109,7 +109,7 @@ typedef struct {
     u32 fuel, runs, errors, fuel_used;
     /* scheduling: a cell with work gets its own kernel stack and can be paused between VM steps */
     u32 *sp; u8 *stack; bool running; bool mid_run; u32 slices;
-    u8 *arena; usize arena_used; Interp *it;          /* per-run memory, reset each message; the live interpreter */
+    u8 *arena; usize arena_used, arena_peak; Interp *it;   /* per-run memory, reset each message; the live interpreter */
 } Cell;
 #define TASK_STACK (512u * 1024u)
 #define ARENA_SIZE (8u * 1024u * 1024u)                /* memory budget per message */

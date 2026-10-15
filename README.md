@@ -206,6 +206,39 @@ time the console draws ASCII glyph by glyph and Devanagari word by word from
 that atlas; a word it has never seen shows as one box per code point. The
 generated `font.h` is committed so Linux CI builds without GDI.
 
+### One small program, three ways
+
+`bench/primes.py` (plain Python) and `cells/abhajya.sv` (Sanskrit Verum
+Script) count the primes below 200 by the same naive trial division.
+`python -X utf8 bench/compare.py` runs both and measures; the bare-metal
+column comes from `spawn q abhajya`, `send q 200`, `run`, `cells` in QEMU.
+All three answer 46 primes, sum 4227.
+
+| | Python | Sanskrit, hosted | Sanskrit, bare metal |
+|---|---|---|---|
+| code lines (non-comment) | 15 | 10 | 10 |
+| source | 764 bytes | 758 chars / 1534 bytes UTF-8 | same |
+| wall time | 0.6 ms | 266 ms | 50 ms |
+| peak memory | 1 KiB | 47 KiB (tracemalloc) | 2 075 KiB (arena, no GC within a message) |
+| interpreter steps | n/a | 91 265 | 111 364 |
+| runs as | native CPython | cell in a VM inside Python | cell in a VM on the hardware |
+| can reach beyond its grant | yes, all of Python | no | no |
+| CPU bound | none | fuel | fuel + 50 ms slice |
+| memory bound | none | size budget | 8 MiB arena per message |
+| result carries provenance | no | yes | yes |
+| recorded in a tamper-evident ledger | no | yes | yes, on disk |
+
+Reading the numbers: the Sanskrit program is shorter than the Python one in
+characters, and the same length in lines of meaning. It is 400× slower
+hosted (an interpreter written in an interpreted language) and ~80× slower
+on bare metal (a tree-walking interpreter in C, every value boxed, every
+step counted against fuel). The bare-metal memory figure is large because a
+cell's arena is only reclaimed between messages, never within one; the
+hosted figure is Python's garbage-collected peak. That is the price of the
+right-hand rows: the Python program can read any file and open any socket
+on the machine; the cell cannot do anything it was not handed, cannot run
+or allocate without limit, and leaves a provable record of what it did.
+
 ### Seats with passphrases, alarms, and background work
 
 `seat bob hunter2` creates a seat that `switch bob hunter2` must unlock;

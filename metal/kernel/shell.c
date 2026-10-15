@@ -112,8 +112,8 @@ static void show_cells(void) {
     if (!n) say("no cells");
     for (int i = 0; i < n; i++) {
         Cell *c = cs[i];
-        kprintf("  %s  runs %u errors %u fuel %u inbox %d%s%s\n", c->name, c->runs, c->errors, c->fuel_used, c->in_count,
-                c->mid_run ? "  PAUSED mid-run" : "", c->slices ? "" : "");
+        kprintf("  %s  runs %u errors %u fuel %u mem-peak %u KiB inbox %d%s\n", c->name, c->runs, c->errors, c->fuel_used,
+                (u32)(c->arena_peak / 1024), c->in_count, c->mid_run ? "  PAUSED mid-run" : "");
         if (c->slices) kprintf("      preempted %u time(s)\n", c->slices);
         for (Env *b = c->env->next; b; b = b->next)
             if (b->val->t == T_CAP) {
@@ -374,10 +374,11 @@ static bool dispatch(char *line) {
         return true;
     }
     if (!strcmp(cmd, "run")) {
+        u32 t0 = uptime_ms();
         int t = kernel_run(argc > 1 ? atoi(argv[1]) : 100);
         Cell *cs[MAX_CELLS]; int n = cell_count(cs, MAX_CELLS), paused = 0;
         for (int i = 0; i < n; i++) if (cs[i]->running) paused++;
-        kprintf("ran %d round(s); now at tick %u%s\n", t, k_tick, paused ? " - some cells are paused mid-run; `run` again to continue" : "");
+        kprintf("ran %d round(s) in %u ms; now at tick %u%s\n", t, uptime_ms() - t0, k_tick, paused ? " - some cells are paused mid-run; `run` again to continue" : "");
         return true;
     }
     if (!strcmp(cmd, "cells")) { show_cells(); return true; }
