@@ -149,8 +149,9 @@ static void show_seats(void) {
 static Val *eval_pure(const char *src, const char **err) {
     Val *forms = vs_parse(src, err);
     if (!forms) return 0;
+    (void)forms;
     Interp it = { .fuel = 20000, .syscall = 0, .ctx = (void *)k_me };
-    Val *r = vs_run(&it, forms, env_new(env_builtins()));
+    Val *r = bc_run_source(&it, src, env_new(env_builtins()));
     if (!r) { *err = it.error; return 0; }
     return r;
 }
@@ -413,8 +414,9 @@ static bool dispatch(char *line) {
         if (!forms) { refuse(err); return true; }
         Env *env = env_new(env_builtins());
         for (int k = 0; k < K_COUNT; k++) if (my_cap(k) >= 0) env_define(env, cap_kind_name(k), v_cap(cap_at(my_cap(k))->token, cap_kind_name(k)));
+        (void)forms;
         Interp it = { .fuel = 200000, .syscall = kernel_syscall, .ctx = (void *)k_me };
-        Val *r = vs_run(&it, forms, env);
+        Val *r = bc_run_source(&it, rest, env);
         if (!r) refuse(it.error); else { char buf[400]; v_show(r, buf, sizeof buf); kprintf("=> %s   (fuel %u)\n", buf, it.used); }
         return true;
     }

@@ -3,7 +3,7 @@
 #define VERUM_VS_H
 #include "lib.h"
 
-typedef enum { T_NIL, T_BOOL, T_INT, T_STR, T_SYM, T_LIST, T_DICT, T_FN, T_PRIM, T_CAP } VType;
+typedef enum { T_NIL, T_BOOL, T_INT, T_STR, T_SYM, T_LIST, T_DICT, T_FN, T_PRIM, T_CAP, T_BFN } VType;
 
 typedef struct Val Val;
 typedef struct Env Env;
@@ -12,6 +12,7 @@ typedef Val *(*PrimFn)(Interp *it, Val **argv, int argc);
 
 struct Val {
     VType t;
+    int line;                                      /* source line (lists and symbols), for error messages */
     union {
         int   i;
         bool  b;
@@ -21,6 +22,7 @@ struct Val {
         struct { Val *params; Val *body; Env *env; const char *name; } fn;   /* body: LIST of forms */
         struct { const char *name; PrimFn f; } prim;
         struct { char token[33]; const char *label; } cap;
+        struct { struct Code *code; struct Frame *parent; } bfn;   /* S2b: a compiled closure */
     };
 };
 
@@ -38,6 +40,7 @@ struct Interp {
     int depth;
     SyscallFn syscall;
     void *ctx;                                     /* the kernel's cell pointer */
+    Env *globals;                                  /* S2b: the module environment GLOBAL/SETGLOBAL use */
     u32 jmp[6];                                    /* vs_setjmp buffer */
     const char *error;
 };
@@ -77,6 +80,12 @@ Val *vs_apply(Interp *it, Val *fn, Val **argv, int argc);
 /* Run `forms` in env; returns NULL and sets it->error on failure. */
 Val *vs_run(Interp *it, Val *forms, Env *env);
 Val *vs_call(Interp *it, Val *fn, Val **argv, int argc);   /* protected apply */
+
+/* S2b bytecode (bc.c): compile forms once, run them in a flat loop */
+struct Code *bc_compile(Interp *it, Val *forms);           /* a module: top-level forms; errors via vs_error */
+Val *bc_run_module(Interp *it, struct Code *code, Env *globals);  /* NULL + it->error on failure */
+Val *bc_apply(Interp *it, Val *closure, Val **argv, int argc);    /* call a T_BFN; may vs_error */
+Val *bc_run_source(Interp *it, const char *src, Env *globals);    /* parse + compile + run, protected */
 
 const char *sanskrit_op(const char *op);          /* "प्राप्" -> "get" etc. */
 bool sanskrit_is_english(const char *word);       /* English spelling of a Verum Script word? */

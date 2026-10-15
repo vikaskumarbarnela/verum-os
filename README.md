@@ -242,9 +242,11 @@ All three answer 46 primes, sum 4227.
 |---|---|---|---|
 | code lines (non-comment) | 15 | 10 | 10 |
 | source | 764 bytes | 758 chars / 1534 bytes UTF-8 | same |
-| wall time | 0.6 ms | 266 ms | 50 ms |
-| peak memory | 1 KiB | 47 KiB (tracemalloc) | 2 075 KiB (arena, no GC within a message) |
-| interpreter steps | n/a | 91 265 | 111 364 |
+| wall time, tree-walker | 0.3 ms | 37 ms | 50 ms |
+| wall time, **S2b bytecode VM** | — | 38 ms | **20 ms** |
+| peak memory, tree-walker | 1 KiB | 47 KiB | 2 075 KiB |
+| peak memory, S2b bytecode VM | — | 7 KiB | 3 755 KiB (arena, no GC within a message; S2c) |
+| interpreter steps | n/a | 139 716 | 139 716 |
 | runs as | native CPython | cell in a VM inside Python | cell in a VM on the hardware |
 | can reach beyond its grant | yes, all of Python | no | no |
 | CPU bound | none | fuel | fuel + 50 ms slice |
@@ -253,12 +255,16 @@ All three answer 46 primes, sum 4227.
 | recorded in a tamper-evident ledger | no | yes | yes, on disk |
 
 Reading the numbers: the Sanskrit program is shorter than the Python one in
-characters, and the same length in lines of meaning. It is 400× slower
-hosted (an interpreter written in an interpreted language) and ~80× slower
-on bare metal (a tree-walking interpreter in C, every value boxed, every
-step counted against fuel). The bare-metal memory figure is large because a
-cell's arena is only reclaimed between messages, never within one; the
-hosted figure is Python's garbage-collected peak. That is the price of the
+characters, and the same length in lines of meaning. Hosted, it runs ~100×
+slower than native Python (an interpreter written in an interpreted
+language; the bytecode VM gains memory there, not time, because Python's
+own call overhead dominates). On bare metal the S2b bytecode VM brings the
+tree-walker's 50 ms down to 20 ms: variables resolve at compile time to
+frame slots, and references to builtins hit an inline cache instead of a
+string search; the timer only resolves 10 ms, so the true figure is
+somewhere in 15–25 ms. Memory per message is still large on bare metal
+because a cell's arena is only reclaimed between messages, never within
+one (S2c, the per-message collector, is next). That is the price of the
 right-hand rows: the Python program can read any file and open any socket
 on the machine; the cell cannot do anything it was not handed, cannot run
 or allocate without limit, and leaves a provable record of what it did.

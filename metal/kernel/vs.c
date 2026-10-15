@@ -3,9 +3,9 @@
 /* ---------------------------------------------------------------- values */
 
 static Val *mk(VType t) { Val *v = kalloc(sizeof *v); v->t = t; return v; }
-static Val NIL = { T_NIL, { 0 } };
-static Val TRUE_ = { T_BOOL, { .b = 1 } };
-static Val FALSE_ = { T_BOOL, { .b = 0 } };
+static Val NIL = { .t = T_NIL };
+static Val TRUE_ = { .t = T_BOOL, .b = 1 };
+static Val FALSE_ = { .t = T_BOOL, .b = 0 };
 
 Val *v_nil(void) { return &NIL; }
 Val *v_bool(bool b) { return b ? &TRUE_ : &FALSE_; }
@@ -124,6 +124,7 @@ static void render(SB *b, Val *v, bool canon) {
         break;
     }
     case T_FN: sb_put(b, "<fn "); sb_put(b, v->fn.name); sb_putc(b, '>'); break;
+    case T_BFN: sb_put(b, "<fn>"); break;
     case T_PRIM: sb_put(b, "<builtin "); sb_put(b, v->prim.name); sb_putc(b, '>'); break;
     case T_CAP: sb_put(b, "<cap "); sb_put(b, v->cap.label); sb_putc(b, '>'); break;   /* token never shown */
     }
@@ -265,10 +266,11 @@ const char *sanskrit_op(const char *op) {
 
 static const char *rd_err;
 static const char *rd;
+static int rd_line = 1;                            /* current source line, stamped on lists and symbols */
 
 static void skip_ws(void) {
     for (;;) {
-        while (*rd == ' ' || *rd == '\t' || *rd == '\n' || *rd == '\r') rd++;
+        while (*rd == ' ' || *rd == '\t' || *rd == '\n' || *rd == '\r') { if (*rd == '\n') rd_line++; rd++; }
         if (*rd == ';') { while (*rd && *rd != '\n') rd++; } else return;
     }
 }
@@ -277,7 +279,7 @@ static Val *read_form(void) {
     if (!*rd) { rd_err = "unexpected end of input"; return 0; }
     if (*rd == '(') {
         rd++;
-        Val *l = v_list(4);
+        Val *l = v_list(4); l->line = rd_line;
         for (;;) {
             skip_ws();
             if (*rd == ')') { rd++; return l; }
@@ -313,10 +315,11 @@ static Val *read_form(void) {
     bool numeric = n > 0; usize i = (tok[0] == '-' && n > 1) ? 1 : 0;
     for (; i < n; i++) if (tok[i] < '0' || tok[i] > '9') numeric = false;
     if (numeric) return v_int(atoi(tok));
-    return v_sym(tok);
+    Val *sym = v_sym(tok); sym->line = rd_line;
+    return sym;
 }
 Val *vs_parse(const char *src, const char **err) {
-    rd = src; rd_err = 0;
+    rd = src; rd_err = 0; rd_line = 1;
     Val *forms = v_list(8);
     for (;;) {
         skip_ws();
@@ -490,6 +493,7 @@ static Val *eval_body(Interp *it, Val *forms, int from, Env *env) {
 }
 
 Val *vs_apply(Interp *it, Val *fn, Val **argv, int argc) {
+    if (fn->t == T_BFN) return bc_apply(it, fn, argv, argc);     /* S2b: compiled closures */
     if (fn->t == T_PRIM) return fn->prim.f(it, argv, argc);
     if (fn->t != T_FN) vs_error(it, "not callable");
     Val *params = fn->fn.params;

@@ -211,8 +211,9 @@ static Cell *spawn_internal(const char *name, int code, u32 fuel, const char **e
     c->env = env_new(env_builtins());
     const char *perr; Val *forms = vs_parse(o->data->s, &perr);
     if (!forms) { *err = perr; return 0; }
-    Interp it = { .fuel = fuel, .syscall = kernel_syscall, .ctx = c->name };
-    if (!vs_run(&it, forms, c->env)) { *err = it.error; return 0; }
+    (void)forms;
+    Interp it = { .fuel = fuel, .syscall = kernel_syscall, .ctx = c->name, .globals = c->env };
+    if (!bc_run_source(&it, o->data->s, c->env)) { *err = it.error; return 0; }   /* S2b: compiled at spawn */
     c->alive = true;
     return c;
 }
@@ -443,12 +444,12 @@ static void run_one_message(Cell *c) {
     int slot = c->in_head; c->in_head = (c->in_head + 1) % INBOX; c->in_count--;
     c->arena_used = 0;                                 /* everything the previous message allocated is gone */
     Val *handler = env_lookup(c->env, "on-message");
-    Interp it = { .fuel = c->fuel, .syscall = kernel_syscall, .ctx = c->name };
+    Interp it = { .fuel = c->fuel, .syscall = kernel_syscall, .ctx = c->name, .globals = c->env };
     c->it = &it;
     Val *args[2] = { v_str(c->inbox[slot].from), c->inbox[slot].body };
     bool ok = true; const char *err = "";
     c->mid_run = true;
-    if (!handler || handler->t != T_FN) { ok = false; err = "cell defines no (on-message from body)"; }
+    if (!handler || (handler->t != T_FN && handler->t != T_BFN)) { ok = false; err = "cell defines no (on-message from body)"; }
     else if (!vs_call(&it, handler, args, 2)) { ok = false; err = it.error; }
     c->mid_run = false; c->it = 0;
     if (c->arena_used > c->arena_peak) c->arena_peak = c->arena_used;
