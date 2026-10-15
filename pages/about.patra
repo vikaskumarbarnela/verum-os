@@ -1,0 +1,24 @@
+# about
+
+## This is not a web browser
+
+A web page is bytes from an address that can change at any time, running
+scripts with the browser's full authority, leaving a history you cannot
+prove. A पत्र (patra) page is the opposite on every point:
+
+* a page is a content-addressed object: its hash is its address, and it cannot change
+* a link resolves to exact content or not at all: there is no 404 that used to be something else
+* a page's script is a cell with exactly the capabilities you grant, listed before it runs
+* your history is the ledger: provable, replayable, undoable
+* there are no cookies or trackers, because a page holds no capability it was not given
+
+## The format
+
+```
+# heading        ## sub-heading
+plain paragraphs, * list items, > quotations
+=> target label  (target: hash, tag:name, page:title)
+@cell code store[get] console[print]
+```
+
+=> page:home back to the start

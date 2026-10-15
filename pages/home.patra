@@ -1,0 +1,22 @@
+# home
+
+Welcome to the VERUM browser. This page is an object: its address is the
+hash of its content, so it can never change under you, and `why` tells you
+who made it. Links go to exact content or nowhere.
+
+## Start here
+
+=> page:about what this browser is, and why it is not a web browser
+=> page:sanskrit संस्कृतलिपि - programming in Sanskrit
+=> tag:note your notes
+=> tag:stats results produced by cells
+=> tag:code programs
+
+## Try
+
+* follow 1   - go to the first link
+* back       - return
+* links      - list the links on this page
+* publish pages/mine.patra   - add your own page
+
+> नास्ति सत्यात् परो धर्मः - there is no law higher than truth.

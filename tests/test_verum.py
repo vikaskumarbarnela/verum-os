@@ -335,6 +335,62 @@ class TestDebugger(Base):
         self.assertIn("line 3: (nope)))", joined)
 
 
+class TestBrowser(Base):
+    """The VERUM browser: पत्र pages are objects; links resolve to content; scripts run only by consent."""
+
+    def setUp(self):
+        super().setUp()
+        self.k.spawn("wc", self.code("wordcount"), SHELL)     # so `allow` has code to run? no: pages name code objects
+        for name in ("home", "about", "sanskrit"):
+            self.sh.do(f'publish "{os.path.join(HERE, "pages", name + ".patra")}"')
+        self.k.put("code", load_any("ganana"), ["code", "ganana"], SHELL, "code")
+
+    def test_parse(self):
+        from verum import patra
+        p = patra.parse("# T\n\npara one\nstill one\n\n* a\n=> abc123 go\n@cell ganana store[get] console[print]\n")
+        self.assertEqual(p.title, "T")
+        kinds = [k for k, _ in p.blocks]
+        self.assertEqual(kinds, ["h1", "p", "li", "link"])
+        self.assertEqual(p.blocks[1][1], "para one still one")
+        self.assertEqual(p.links[0].target, "abc123")
+        self.assertEqual(p.script.caps, [("store", ["get"]), ("console", ["print"])])
+
+    def test_page_is_an_object_with_provenance(self):
+        h = self.k.store.find("home")[0]
+        o = self.k.store.get(h)
+        self.assertEqual(o.kind, "patra")
+        self.assertEqual(o.by, SHELL)
+        self.assertIn("patra", o.tags)
+
+    def test_navigation(self):
+        self.sh.do("open page:home")
+        self.assertTrue(any("HOME" in l for l in self.lines))
+        self.sh.do("follow 1")                          # -> about
+        self.assertTrue(any("This is not a web browser" in l for l in self.lines))
+        self.sh.do("back")
+        self.assertTrue(any("link(s)" in l for l in self.lines[-1:]))
+        self.sh.do("follow 3")                          # tag:note -> a synthesized index
+        self.assertTrue(any("objects tagged note" in l.lower() for l in self.lines))
+
+    def test_broken_link_resolves_to_nothing_not_something_else(self):
+        self.sh.do("open deadbeef")
+        self.assertTrue(any("refused: no unique object" in l for l in self.lines))
+
+    def test_allow_runs_the_cell_with_only_declared_caps(self):
+        self.sh.do("open page:sanskrit")
+        self.sh.do("allow")
+        name = next(n for n in self.k.cells if n.startswith("page-"))
+        cell = self.k.cells[name]
+        caps = {label: self.k.caps.get(v.token) for label, v in cell.env.vars.items() if isinstance(v, vm.CapHandle)}
+        self.assertEqual(set(caps), {"store", "console"})
+        self.assertEqual(caps["store"].rights, frozenset({"get", "put"}))
+        self.assertNotIn("kernel", caps)
+        self.assertEqual(cell.errors, 0)
+        self.assertTrue(any("शब्दाः" in l for l in self.lines))        # it counted the page's words
+        stats = self.k.store.find("stats")
+        self.assertEqual(self.k.store.get(stats[0]).by, name)        # provenance names the page's cell
+
+
 class TestMalware(Base):
     def setUp(self):
         super().setUp()

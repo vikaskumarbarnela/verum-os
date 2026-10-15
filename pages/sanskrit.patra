@@ -1,0 +1,22 @@
+# sanskrit
+
+## संस्कृतलिपि
+
+Verum Script is a Lisp, so every word can be Sanskrit. परिभाषा is define,
+अस्तु is let, आह्वानम् is call - the only thing a program can do to the world.
+Type it on a Latin keyboard with `lipi on`: paribhASA becomes परिभाषा.
+
+```
+(परिभाषा (सन्देशे प्रेषकः विषयः)
+  (अस्तु ((वस्तु (आह्वानम् भाण्डारः "प्राप्" विषयः)))
+    (आह्वानम् पटलः "मुद्रय" "शब्दाः" (परिमाणम् (विभज (गृहाण वस्तु "data") " ")))))
+```
+
+This page carries a cell: the Sanskrit word counter. It asks to read the
+store and print. Nothing runs until you say `allow`, and then it can do
+exactly that and nothing else - it will count the words of this very page.
+
+@cell ganana store[get,put] console[print]
+
+=> tag:stats what it produced
+=> page:home home

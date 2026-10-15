@@ -13,7 +13,7 @@ import threading
 import sys
 from typing import List, Optional
 
-from . import bytecode, debug, sanskrit, translit, vm
+from . import bytecode, debug, patra, sanskrit, translit, vm
 from .caps import CapError
 from .kernel import SHELL, Kernel, KernelError
 
@@ -74,6 +74,8 @@ VERUM shell - intents you can state
   seat <name> [passphrase]       another human, with no capabilities (grant to them like a cell)
   switch <name> [passphrase]     take that seat; every intent is then checked against its caps
   seats / whoami                 list seats and their capabilities; who is at the keyboard
+  open <hash|tag:x|page:title>   browser: view a पत्र page; follow <n> / back / links; allow runs its cell
+  publish <file.patra>           store a page (first heading = its title; open page:<title>)
   break <cell> <line>            debugger: pause the cell at that source line on the next run
   step / continue / inspect / stack / where   while a cell is paused
   profile on|off|show            deterministic fuel per function (instructions executed)
@@ -411,9 +413,21 @@ class Shell:
 
     @staticmethod
     def _colon_words(line: str) -> str:
-        """Even with lipi off, `:paribhASA` transliterates that one word."""
-        return translit.transliterate_line(line, keep=set(line.replace("(", " ").replace(")", " ").split()) - {
-            t for t in line.replace("(", " ").replace(")", " ").split() if t.startswith(":")})
+        """Even with lipi off, a bare `:paribhASA` transliterates that one word. Quoted text is untouched."""
+        out, i, n = [], 0, len(line)
+        while i < n:
+            if line[i] == '"':                             # copy a string verbatim
+                j = line.find('"', i + 1)
+                j = n if j < 0 else j
+                out.append(line[i:j + 1]); i = j + 1
+            elif line[i] == ":" and (i == 0 or line[i - 1] in " ("):
+                j = i + 1
+                while j < n and line[j] not in " ()\"":
+                    j += 1
+                out.append(translit.to_devanagari(line[i + 1:j])); i = j
+            else:
+                out.append(line[i]); i += 1
+        return "".join(out)
 
     def cmd_lipi(self, a, line):
         """lipi on|off: type Harvard-Kyoto Latin, get Devanagari.  lipi <word> shows how to type a Sanskrit word."""
@@ -425,6 +439,109 @@ class Shell:
         else:
             w = " ".join(a)
             self.out(f"{translit.to_latin(w)}  ->  {translit.to_devanagari(translit.to_latin(w)) if translit.is_devanagari(w) else translit.to_devanagari(w)}")
+
+    # ------------------------------------------------------------------ the browser (पत्र pages)
+
+    _history: List[str] = []
+    _page: Optional[patra.Page] = None
+    _page_hash: Optional[str] = None
+
+    def _resolve_target(self, target: str):
+        """A link target -> (hash, Page). tag:<t> and page:<title> synthesize or find pages."""
+        if target.startswith("tag:"):
+            tag = target[4:]
+            lines = [f"# objects tagged {tag}", ""]
+            for h in self.k.store.find(tag):
+                o = self.k.store.get(h)
+                lines.append(f"=> {h} {o.kind}: {self._preview(o.data, 50)}")
+            if len(lines) == 2:
+                lines.append(f"nothing is tagged {tag}.")
+            return None, patra.parse("\n".join(lines))
+        if target.startswith("page:"):
+            for h in self.k.store.find(target[5:]):
+                if self.k.store.get(h).kind == "patra":
+                    return h, patra.parse(self.k.store.get(h).data)
+            raise KernelError(f"no page titled {target[5:]!r}")
+        h = self.k.store.resolve(target)
+        if h is None:
+            raise KernelError(f"no unique object matching {target!r}")
+        o = self.k.store.get(h)
+        if o.kind == "patra":
+            return h, patra.parse(o.data)
+        # any other object is shown as a one-block page, so every link resolves to real content
+        return h, patra.parse(f"# {o.kind} {h[:12]}\n\n```\n{vm.show(o.data)}\n```\n\nby {o.by} via {o.op} at tick {o.tick}")
+
+    def _show_page(self, h, page):
+        self._page, self._page_hash = page, h
+        for l in patra.render(page):
+            self.out(l)
+        if h:
+            o = self.k.store.get(h)
+            self.out(f"— {h[:12]} · by {o.by} · tick {o.tick} · {len(page.links)} link(s)")
+
+    def cmd_open(self, a, line):
+        """open <hash|tag:x|page:title>   - view a page; links are numbered, `follow <n>` goes there"""
+        target = a[0] if a else "page:home"
+        h, page = self._resolve_target(target)
+        if self._page_hash is not None or self._page is not None:
+            self._history.append(self._page_hash or "")
+        self._show_page(h, page)
+
+    def cmd_follow(self, a, line):
+        if not self._page:
+            raise KernelError("no page is open (open page:home)")
+        n = int(a[0])
+        for link in self._page.links:
+            if link.n == n:
+                h, page = self._resolve_target(link.target)
+                self._history.append(self._page_hash or "")
+                self._show_page(h, page)
+                return
+        raise KernelError(f"no link [{n}] on this page")
+
+    def cmd_back(self, a, line):
+        if not self._history:
+            raise KernelError("no earlier page")
+        h = self._history.pop()
+        if not h:
+            self._page, self._page_hash = None, None
+            self.out("(back to the start)")
+            return
+        self._show_page(h, patra.parse(self.k.store.get(h).data))
+
+    def cmd_links(self, a, line):
+        if not self._page:
+            raise KernelError("no page is open")
+        for link in self._page.links:
+            self.out(f"  [{link.n}] {link.label}  ->  {link.target}")
+
+    def cmd_allow(self, a, line):
+        """allow   - run the open page's cell with exactly the capabilities it declared"""
+        if not self._page or not self._page.script:
+            raise KernelError("the open page has no cell to run")
+        sc = self._page.script
+        name = f"page-{(self._page_hash or 'x')[:6]}"
+        if name in self.k.cells:
+            self.k.kill(name, self.me)
+        self.k.spawn(name, self._code_hash(sc.code), by=self.me)
+        granted = []
+        for kind, rights in sc.caps:
+            parent = self._cap_token(self.me, kind)
+            cap = self.k.grant(parent, self.me, rights, name, kind)
+            granted.append(cap.describe())
+        self.out(f"cell {name} runs with: " + "; ".join(granted))
+        self.k.send(name, self._page_hash, by=self.me)
+        self.k.run()
+
+    def cmd_publish(self, a, line):
+        """publish <file.patra>   - store a page; its first heading becomes a tag so page:<title> finds it"""
+        with open(a[0], encoding="utf-8") as f:
+            src = f.read()
+        page = patra.parse(src)
+        self.k.caps.check(self.k._cap_of(self.me, "store"), self.me, "put")
+        tags = ["patra"] + ([page.title] if page.title else [])
+        h = self.k.put("patra", src, tags, by=self.me, op="publish")
+        self.out(f"published {page.title or 'untitled'} as {h[:12]}  (open {h[:12]}  or  open page:{page.title})")
 
     def cmd_sanskrit(self, a, line):
         """Show a code object in संस्कृतलिपि, or translate a file: sanskrit <hash|name|path.vs>"""
