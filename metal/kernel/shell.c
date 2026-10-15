@@ -271,7 +271,7 @@ static bool dispatch(char *line) {
         if (!i_may(K_STORE, R_GET)) { refuse("you hold no store[get] capability"); return true; }
         int i = argc > 1 ? resolve_obj(argv[1]) : -1; Obj *o = store_get(i);
         if (!o) { refuse("no unique object with that prefix"); return true; }
-        char buf[400]; v_show(o->data, buf, sizeof buf);
+        char *buf = kalloc(VS_MAX_SIZE); v_show(o->data, buf, VS_MAX_SIZE);   /* whole source, never cut inside a UTF-8 character */
         kprintf("object %s\n  kind %s  by %s via %s at tick %u\n  tags", o->hash, o->kind, o->by, o->op, o->tick);
         for (int t = 0; t < o->ntags; t++) kprintf(" %s", o->tags[t]);
         kprintf("\n  inputs %d\n  data %s\n", o->ninputs, buf);

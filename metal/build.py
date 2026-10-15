@@ -50,6 +50,12 @@ CFLAGS = ["--target=i386-elf", "-m32", "-ffreestanding", "-fno-builtin", "-nostd
 
 def build() -> str:
     os.makedirs(BUILD, exist_ok=True)
+    # fonts: regenerate on Windows (GDI shapes the Devanagari); elsewhere the committed kernel/font.h is used
+    if sys.platform == "win32":
+        try:
+            subprocess.run([sys.executable, "-X", "utf8", os.path.join(HERE, "fontgen.py")], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"fontgen failed ({e}); using the existing kernel/font.h")
     nasm, clang, lld = tool("nasm"), tool("clang"), tool("ld.lld")
     objs = []
     boot_o = os.path.join(BUILD, "boot.o")
@@ -140,6 +146,8 @@ SCRIPT = [
     "@dump preempt2",
     "spawn g ganana", "grant g store get,put", "grant g console print", "send g @note", "run", "find stats",
     "@dump sanskrit",
+    "show ganana",
+    "@dump devanagari",
     "alarm e 1 \"tick\"", "alarms", "bg on",
     "@wait 3.5",
     "log", "alarms", "bg off", "unalarm 0",

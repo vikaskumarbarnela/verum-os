@@ -193,6 +193,19 @@ renders an English program in Sanskrit. Five tests check that the
 vocabulary is total and that Sanskrit and English cells produce identical
 results and provenance.
 
+**Devanagari on bare metal.** The VGA text mode cannot draw Devanagari, so
+the kernel now has a framebuffer console (`metal/kernel/fb.c`): it switches
+QEMU's VGA to 800×600×32 through the Bochs VBE ports, finds the linear
+framebuffer via PCI, and draws text itself. Devanagari needs real shaping
+(conjuncts like क्ष, vowel signs that move before or below their consonant),
+which a 100 KiB kernel should not attempt, so `metal/fontgen.py` does it at
+build time: it renders an 8×16 ASCII font and every Sanskrit word the kernel
+can show (the whole vocabulary plus every Devanagari word in the embedded
+cells) with Windows GDI and the Nirmala UI font into `kernel/font.h`. At run
+time the console draws ASCII glyph by glyph and Devanagari word by word from
+that atlas; a word it has never seen shows as one box per code point. The
+generated `font.h` is committed so Linux CI builds without GDI.
+
 ### Seats with passphrases, alarms, and background work
 
 `seat bob hunter2` creates a seat that `switch bob hunter2` must unlock;

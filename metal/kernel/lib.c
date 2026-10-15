@@ -114,29 +114,35 @@ static void vga_cursor(void) {
     outb(0x3D4, 15); outb(0x3D5, pos & 0xFF);
 }
 #define TOP 1                                   /* row 0 is the status bar */
+static bool use_fb = false;                     /* the framebuffer console takes over when VBE exists */
 void vga_init(void) {
     attr = (u8)((C_BLACK << 4) | C_GREY);
     for (int i = 0; i < COLS * ROWS; i++) VGA[i] = (u16)(attr << 8) | ' ';
     cur_x = 0; cur_y = TOP;
     vga_cursor();
+    use_fb = fb_init();
+    if (use_fb) fb_color(C_GREY, C_BLACK);
 }
 void vga_clear(void) {
+    if (use_fb) { fb_clear(); return; }
     for (int i = TOP * COLS; i < COLS * ROWS; i++) VGA[i] = (u16)(attr << 8) | ' ';
     cur_x = 0; cur_y = TOP;
     vga_cursor();
 }
 void vga_status(const char *s) {
+    if (use_fb) { fb_status(s); return; }
     u8 bar = (u8)((C_CYAN << 4) | C_BLACK);
     for (int i = 0; i < COLS; i++) VGA[i] = (u16)(bar << 8) | (u8)(*s ? *s++ : ' ');
 }
-void vga_at(int row, int col) { cur_y = row; cur_x = col; vga_cursor(); }
-void vga_color(u8 fg, u8 bg) { attr = (u8)((bg << 4) | fg); }
+void vga_at(int row, int col) { if (use_fb) { fb_at(row, col); return; } cur_y = row; cur_x = col; vga_cursor(); }
+void vga_color(u8 fg, u8 bg) { attr = (u8)((bg << 4) | fg); if (use_fb) fb_color(fg, bg); }
 static void scroll(void) {
     for (int i = TOP * COLS; i < (ROWS - 1) * COLS; i++) VGA[i] = VGA[i + COLS];
     for (int i = (ROWS - 1) * COLS; i < ROWS * COLS; i++) VGA[i] = (u16)(attr << 8) | ' ';
     cur_y = ROWS - 1;
 }
 void vga_putc(char c) {
+    if (use_fb) { fb_putc(c); return; }
     if (c == '\n') { cur_x = 0; cur_y++; }
     else if (c == '\r') cur_x = 0;
     else if (c == '\b') { if (cur_x) { cur_x--; VGA[cur_y * COLS + cur_x] = (u16)(attr << 8) | ' '; } }
@@ -225,8 +231,6 @@ void kbd_readline(char *buf, usize cap) {
 #define ATA_CMD 0x1F7
 #define ATA_STATUS 0x1F7
 
-static inline u16 inw(u16 port) { u16 r; __asm__ volatile("inw %1, %0" : "=a"(r) : "Nd"(port)); return r; }
-static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
 
 static bool ata_wait(bool want_drq) {
     for (u32 i = 0; i < 1000000; i++) {

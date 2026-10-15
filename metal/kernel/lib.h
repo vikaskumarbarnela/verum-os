@@ -43,6 +43,19 @@ void   hex_encode(const u8 *in, usize n, char *out);   /* out needs 2n+1 */
 /* x86 I/O */
 static inline void outb(u16 port, u8 v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
 static inline u8   inb(u16 port) { u8 r; __asm__ volatile("inb %1, %0" : "=a"(r) : "Nd"(port)); return r; }
+static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
+static inline u16  inw(u16 port) { u16 r; __asm__ volatile("inw %1, %0" : "=a"(r) : "Nd"(port)); return r; }
+static inline void outl(u16 port, u32 v) { __asm__ volatile("outl %0, %1" : : "a"(v), "Nd"(port)); }
+static inline u32  inl(u16 port) { u32 r; __asm__ volatile("inl %1, %0" : "=a"(r) : "Nd"(port)); return r; }
+
+/* framebuffer console (fb.c): 800x600, ASCII font + pre-shaped Devanagari words; used when VBE exists */
+bool fb_init(void);
+bool fb_active(void);
+void fb_putc(char c);
+void fb_clear(void);
+void fb_status(const char *s);
+void fb_at(int row, int col);
+void fb_color(u8 fg, u8 bg);
 
 /* VGA console */
 enum { C_BLACK, C_BLUE, C_GREEN, C_CYAN, C_RED, C_MAGENTA, C_BROWN, C_GREY,
