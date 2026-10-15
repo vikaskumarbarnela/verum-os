@@ -41,6 +41,7 @@ struct Interp {
     SyscallFn syscall;
     void *ctx;                                     /* the kernel's cell pointer */
     Env *globals;                                  /* S2b: the module environment GLOBAL/SETGLOBAL use */
+    Val **fstack; int ftop;                        /* S2c: LIFO slots for frames no closure can capture */
     u32 jmp[6];                                    /* vs_setjmp buffer */
     const char *error;
 };

@@ -243,9 +243,9 @@ All three answer 46 primes, sum 4227.
 | code lines (non-comment) | 15 | 10 | 10 |
 | source | 764 bytes | 758 chars / 1534 bytes UTF-8 | same |
 | wall time, tree-walker | 0.3 ms | 37 ms | 50 ms |
-| wall time, **S2b bytecode VM** | — | 38 ms | **20 ms** |
+| wall time, **S2b bytecode VM** | — | 38 ms | **20–30 ms** (10 ms timer) |
 | peak memory, tree-walker | 1 KiB | 47 KiB | 2 075 KiB |
-| peak memory, S2b bytecode VM | — | 7 KiB | 3 755 KiB (arena, no GC within a message; S2c) |
+| peak memory, S2b bytecode VM | — | 7 KiB | ~1.5 MiB for n=200; n=500 now fits (frames pooled, S2c part 1) |
 | interpreter steps | n/a | 139 716 | 139 716 |
 | runs as | native CPython | cell in a VM inside Python | cell in a VM on the hardware |
 | can reach beyond its grant | yes, all of Python | no | no |

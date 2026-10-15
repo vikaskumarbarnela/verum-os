@@ -16,6 +16,7 @@ static u32 bc_gen = 1;                                /* bumped whenever a globa
 typedef struct Code {
     const char *name;
     int nparams, nslots;
+    bool captures;                                   /* contains CLOSURE: its frames may outlive the call */
     Ins *ins; int n, cap;
     Val **consts; int nconsts, ccap;
     struct Code **codes; int ncodes, kcap;
@@ -37,6 +38,7 @@ static Code *code_new(const char *name, int nparams) {
     return c;
 }
 static int emit(Code *c, int op, i32 a, i32 b, int line) {
+    if (op == CLOSURE) c->captures = true;
     if (c->n == c->cap) { Ins *ni = kalloc(sizeof(Ins) * c->cap * 2); memcpy(ni, c->ins, sizeof(Ins) * c->n); c->ins = ni; c->cap *= 2; }
     c->ins[c->n].op = (u8)op; c->ins[c->n].a = a; c->ins[c->n].b = b; c->ins[c->n].line = (u16)line;
     return c->n++;
@@ -245,6 +247,25 @@ Code *bc_compile(Interp *it, Val *forms) {
 /* ---------------------------------------------------------------- virtual machine */
 
 #define STACK 256
+#define FSTACK (64 * 1024)                           /* slots shared by all non-escaping frames of one run */
+/* The frame stack is per interpreter (per message), so interleaved cells never share one. */
+static Frame *frame_for(Interp *it, Code *c, Frame *parent, Val **argv, int argc, bool *pooled) {
+    int n = c->nslots ? c->nslots : 1;
+    Frame *f;
+    if (!it->fstack) { it->fstack = kalloc(sizeof(Val *) * FSTACK); it->ftop = 0; }   /* from the cell's arena */
+    if (!c->captures && it->ftop + n + 2 < FSTACK) {             /* LIFO: released when the call returns */
+        f = (Frame *)&it->fstack[it->ftop]; it->ftop += 2;       /* a Frame is two pointers wide */
+        f->slots = &it->fstack[it->ftop]; it->ftop += n;
+        for (int i = 0; i < n; i++) f->slots[i] = 0;
+        *pooled = true;
+    } else {
+        f = kalloc(sizeof *f); f->slots = kalloc(sizeof(Val *) * n);
+        *pooled = false;
+    }
+    f->parent = parent;
+    for (int i = 0; i < argc; i++) f->slots[i] = argv[i];
+    return f;
+}
 
 static void at_line(Interp *it, const char *msg, int line) {
     char *m = kalloc(strlen(msg) + 24); strcpy(m, msg);
@@ -275,11 +296,12 @@ static Val *execute(Interp *it, Code *code, Frame *frame) {
             if (fn->t == T_BFN) {
                 Code *c2 = fn->bfn.code;
                 if (argc != c2->nparams) at_line(it, "wrong number of arguments to function", in.line);
-                Frame *f2 = kalloc(sizeof *f2); f2->slots = kalloc(sizeof(Val *) * (c2->nslots ? c2->nslots : 1)); f2->parent = fn->bfn.parent;
-                for (int i = 0; i < argc; i++) f2->slots[i] = argv[i];
+                bool pooled; int mark = it->ftop;
+                Frame *f2 = frame_for(it, c2, fn->bfn.parent, argv, argc, &pooled);
                 if (++it->depth > VS_MAX_DEPTH) at_line(it, "call depth exceeded", in.line);
                 r = execute(it, c2, f2);
                 it->depth--;
+                if (pooled) it->ftop = mark;
             } else r = vs_apply(it, fn, argv, argc);
             sp -= argc + 1;
             stack[sp++] = r;
@@ -327,11 +349,12 @@ static Val *execute(Interp *it, Code *code, Frame *frame) {
 Val *bc_apply(Interp *it, Val *closure, Val **argv, int argc) {
     Code *c = closure->bfn.code;
     if (argc != c->nparams) vs_error(it, "wrong number of arguments to function");
-    Frame *f = kalloc(sizeof *f); f->slots = kalloc(sizeof(Val *) * (c->nslots ? c->nslots : 1)); f->parent = closure->bfn.parent;
-    for (int i = 0; i < argc; i++) f->slots[i] = argv[i];
+    bool pooled; int mark = it->ftop;
+    Frame *f = frame_for(it, c, closure->bfn.parent, argv, argc, &pooled);
     if (++it->depth > VS_MAX_DEPTH) vs_error(it, "call depth exceeded");
     Val *r = execute(it, c, f);
     it->depth--;
+    if (pooled) it->ftop = mark;
     return r;
 }
 
