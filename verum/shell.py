@@ -12,9 +12,40 @@ import shlex
 import sys
 from typing import List, Optional
 
-from . import sanskrit, vm
+from . import sanskrit, translit, vm
 from .caps import CapError
 from .kernel import SHELL, Kernel, KernelError
+
+# words that stay Latin when `lipi` transliteration is on: shell intents and the English surface of Verum Script
+KEEP_LATIN = (set(vm.BUILTINS) | set(vm.SPECIAL_FORMS) | set(sanskrit.SYMBOLS.values()) | set(sanskrit.OPS.values())
+              | {"on-message", "else", "true", "false", "nil", "on", "off", "yes"})
+
+# the VM's refusals, in Sanskrit, shown next to the English when lipi is on
+ERRORS_SK = {
+    "fuel exhausted": "इन्धनं क्षीणम्",
+    "unbound symbol": "अबद्धं पदम्",
+    "denied": "निषिद्धम्",
+    "capability lacks right": "अधिकारे सामर्थ्यं नास्ति",
+    "capability has been revoked": "अधिकारः प्रत्याहृतः",
+    "capability is not held by the caller": "अधिकारः आह्वातुः न",
+    "call depth exceeded": "आह्वानगभीरता अतिक्रान्ता",
+    "value exceeds size budget": "मानं परिमाणसीमां अतिक्रान्तम्",
+    "division by zero": "शून्येन भागः",
+    "not callable": "न आह्वातव्यम्",
+    "expected a number": "संख्या अपेक्षिता",
+    "expected a string": "वाक्यम् अपेक्षितम्",
+    "expected a list": "सूची अपेक्षिता",
+    "wrong number of arguments": "उपादानसंख्या असम्यक्",
+    "no such object": "तादृशं वस्तु नास्ति",
+    "first argument must be a capability": "प्रथमम् उपादानम् अधिकारः स्यात्",
+}
+
+
+def sanskrit_hint(message: str) -> str:
+    for en, sk in ERRORS_SK.items():
+        if en in message:
+            return f"  ({sk})"
+    return ""
 
 
 HELP = """
@@ -42,6 +73,9 @@ VERUM shell - intents you can state
   seat <name> [passphrase]       another human, with no capabilities (grant to them like a cell)
   switch <name> [passphrase]     take that seat; every intent is then checked against its caps
   seats / whoami                 list seats and their capabilities; who is at the keyboard
+  lipi on|off                    type Sanskrit on a Latin keyboard (Harvard-Kyoto: paribhASA -> परिभाषा)
+  lipi <word>                    show how to type a Sanskrit word;  :word transliterates one word anywhere
+  sanskrit <file|code>           render an English Verum Script program in Sanskrit
   help / quit
 """
 
@@ -50,7 +84,11 @@ class Shell:
     def __init__(self, kernel: Kernel, out=None) -> None:
         self.k = kernel
         self.out = out or (lambda s: print(s))
-        self.k._console = self.out
+        self.lipi = False                      # transliterate typed Latin into Devanagari
+        self.k._console = self._console
+
+    def _console(self, line: str) -> None:
+        self.out(line + (sanskrit_hint(line) if self.lipi else ""))
 
     # ------------------------------------------------------------------ helpers
 
@@ -100,6 +138,12 @@ class Shell:
         line = line.strip()
         if not line:
             return True
+        if self.lipi or ":" in line:
+            head, _, rest = line.partition(" ")          # the intent itself is never transliterated
+            # anything that already names something here stays Latin too: tags, cells, seats, code objects
+            keep = KEEP_LATIN | set(self.k.store.tags()) | set(self.k.cells) | set(self.k.seats)
+            rest = translit.transliterate_line(rest, keep) if self.lipi else self._colon_words(rest)
+            line = (head + " " + rest).strip()
         try:
             parts = shlex.split(line)
         except ValueError as e:
@@ -114,7 +158,7 @@ class Shell:
             r = fn(args, line)
             return r if r is not None else True
         except (KernelError, CapError, vm.VMError) as e:
-            self.out(f"refused: {e}")
+            self.out(f"refused: {e}" + (sanskrit_hint(str(e)) if self.lipi else ""))
         except (IndexError, ValueError) as e:
             self.out(f"usage error: {e} - type help")
         return True
@@ -261,6 +305,23 @@ class Shell:
         self.out(f"=> {vm.show(result)}")
         if used:
             self.out(f"   (capabilities used: {', '.join(used)}; fuel {it.used})")
+
+    @staticmethod
+    def _colon_words(line: str) -> str:
+        """Even with lipi off, `:paribhASA` transliterates that one word."""
+        return translit.transliterate_line(line, keep=set(line.replace("(", " ").replace(")", " ").split()) - {
+            t for t in line.replace("(", " ").replace(")", " ").split() if t.startswith(":")})
+
+    def cmd_lipi(self, a, line):
+        """lipi on|off: type Harvard-Kyoto Latin, get Devanagari.  lipi <word> shows how to type a Sanskrit word."""
+        if not a:
+            self.out(f"lipi is {'on' if self.lipi else 'off'}: type paribhASA for परिभाषा, saMskRta for संस्कृत; :word forces it, \\word keeps Latin")
+        elif a[0] in ("on", "off"):
+            self.lipi = a[0] == "on"
+            self.out(f"lipi {'on: Latin letters become Devanagari (shell intents and English Verum Script stay as they are)' if self.lipi else 'off'}")
+        else:
+            w = " ".join(a)
+            self.out(f"{translit.to_latin(w)}  ->  {translit.to_devanagari(translit.to_latin(w)) if translit.is_devanagari(w) else translit.to_devanagari(w)}")
 
     def cmd_sanskrit(self, a, line):
         """Show a code object in संस्कृतलिपि, or translate a file: sanskrit <hash|name|path.vs>"""

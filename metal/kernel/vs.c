@@ -246,6 +246,15 @@ static void sanskrit_canonical(char *tok, usize cap) {
     if (digits && n) { out[n] = 0; if (strlen(out) < cap) strcpy(tok, out); }
 }
 
+/* Is this the English spelling of a Verum Script word (keyword, builtin, label, op)? Such words stay Latin under lipi. */
+bool sanskrit_is_english(const char *word) {
+    for (usize i = 0; i < sizeof SANSKRIT / sizeof SANSKRIT[0]; i++) if (strcmp(word, SANSKRIT[i].en) == 0) return true;
+    for (usize i = 0; i < sizeof SANSKRIT_OPS / sizeof SANSKRIT_OPS[0]; i++) if (strcmp(word, SANSKRIT_OPS[i].en) == 0) return true;
+    static const char *const EXTRA[] = { "on", "off", "yes", "nil?", "number?", "string?", "list?", "dict?", "sort", "trim", "mod" };
+    for (usize i = 0; i < sizeof EXTRA / sizeof EXTRA[0]; i++) if (strcmp(word, EXTRA[i]) == 0) return true;
+    return false;
+}
+
 const char *sanskrit_op(const char *op) {
     for (usize i = 0; i < sizeof SANSKRIT_OPS / sizeof SANSKRIT_OPS[0]; i++)
         if (strcmp(op, SANSKRIT_OPS[i].sk) == 0) return SANSKRIT_OPS[i].en;

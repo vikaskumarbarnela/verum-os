@@ -148,6 +148,8 @@ SCRIPT = [
     "@dump sanskrit",
     "show ganana",
     "@dump devanagari",
+    "lipi on", "eval (pratyekam (kAryam (ka) (guNanam ka ka)) (zreNI 5))", "note dharmo rakSati rakSitaH", "find note", "lipi off",
+    "@dump lipi",
     "alarm e 1 \"tick\"", "alarms", "bg on",
     "@wait 3.5",
     "log", "alarms", "bg off", "unalarm 0",

@@ -23,8 +23,19 @@ static const char *HELP =
 "  history / rewind <n>     timeline; go back to entry n (asks; the rest goes to the attic)\n"
 "  attic / restore <k>      branches cut off by rewind; bring one back\n"
 "  dash                     panel view          demo              guided tour\n"
-"  uptime                   timer since boot    trap              raise a CPU exception (halts)\n";
+"  uptime                   timer since boot    trap              raise a CPU exception (halts)\n"
+"  lipi on|off / lipi <w>   type Sanskrit on a Latin keyboard: paribhASA -> परिभाषा;  :word forces it\n";
 
+static bool lipi_on = false;                       /* `lipi on`: typed Latin becomes Devanagari */
+/* words that stay Latin under lipi: the English surface of Verum Script, and anything that already names
+   something here - a tag, a cell, a seat, a built-in program */
+static bool keep_latin(const char *w) {
+    if (sanskrit_is_english(w) || cell_find(w) || seat_find(w) || store_find_code(w) >= 0) return true;
+    int hits[1]; if (store_find(w, hits, 1)) return true;
+    for (int i = 0; i < N_BUILTIN_CELLS; i++) if (strcmp(BUILTIN_CELLS[i].name, w) == 0) return true;
+    return false;
+}
+static bool keep_all(const char *w) { (void)w; return true; }
 static void say(const char *s) { vga_puts(s); vga_putc('\n'); }
 static void refuse(const char *s) { vga_color(C_LRED, C_BLACK); kprintf("refused: %s\n", s); vga_color(C_GREY, C_BLACK); }
 static void head(const char *s) { vga_color(C_WHITE, C_BLACK); vga_puts(s); vga_color(C_GREY, C_BLACK); }
@@ -223,6 +234,12 @@ static bool dispatch(char *line) {
     if (!strcmp(cmd, "demo")) { demo(); return true; }
     if (!strcmp(cmd, "dash")) { dash(); return true; }
     if (!strcmp(cmd, "whoami")) { kprintf("%s\n", k_me); return true; }
+    if (!strcmp(cmd, "lipi")) {
+        if (argc < 2) { kprintf("lipi is %s: type paribhASA for परिभाषा, saMskRta for संस्कृत; :word forces it, \\word keeps Latin\n", lipi_on ? "on" : "off"); return true; }
+        if (!strcmp(argv[1], "on") || !strcmp(argv[1], "off")) { lipi_on = !strcmp(argv[1], "on"); kprintf("lipi %s\n", lipi_on ? "on: Latin letters become Devanagari (intents and English Verum Script stay)" : "off"); return true; }
+        char dev[512]; lipi_word(argv[1], dev, sizeof dev); kprintf("%s\n", dev);
+        return true;
+    }
     if (!strcmp(cmd, "uptime")) { kprintf("up %u ms (%u timer ticks at 100 Hz); cells get %d ms per message\n", uptime_ms(), uptime_ticks, SLICE_TICKS * 10); return true; }
     if (!strcmp(cmd, "trap")) {
         say("raising a divide-by-zero in the kernel to show the exception handler...");
@@ -490,6 +507,7 @@ void shell_main(void) {
         status();
         head(k_me); head("> ");
         kbd_readline(line, sizeof line);
+        if (lipi_on || strstr(line, " :")) lipi_line(line, sizeof line, lipi_on ? keep_latin : keep_all);   /* off: only :words */
         if (!dispatch(line)) { say("halting."); return; }
     }
 }

@@ -238,6 +238,46 @@ class TestSanskrit(Base):
         self.assertEqual(vm.parse(sk), vm.parse(en))                       # identical programs
 
 
+class TestLipi(Base):
+    """Harvard-Kyoto transliteration: what you type on a Latin keyboard becomes Devanagari."""
+
+    def test_round_trip_vocabulary(self):
+        from verum import sanskrit, translit
+        for word in sanskrit.SYMBOLS:
+            latin = translit.to_latin(word)
+            self.assertEqual(translit.to_devanagari(latin), word, f"{word} -> {latin} does not round-trip")
+
+    def test_common_spellings(self):
+        from verum.translit import to_devanagari as d
+        self.assertEqual(d("paribhASA"), "परिभाषा")
+        self.assertEqual(d("paribhaaShaa"), "परिभाषा")
+        self.assertEqual(d("saMskRta"), "संस्कृत")
+        self.assertEqual(d("kSetram"), "क्षेत्रम्")
+        self.assertEqual(d("200"), "२००")
+        self.assertEqual(d("rAm"), "राम्")           # trailing consonant takes a halant
+
+    def test_shell_lipi_mode_runs_a_sanskrit_program(self):
+        self.sh.do("lipi on")
+        self.sh.do('eval (paribhASA (vargaH ka) (guNanam ka ka)) (pratyekam vargaH (zreNI 4))')
+        self.assertIn("=> (0 1 4 9)", self.lines)
+        self.sh.do("lipi off")
+        self.sh.do("eval (len (list :rAma))")           # :word works even with lipi off
+        self.assertTrue(any("unbound symbol राम" in l for l in self.lines))
+
+    def test_english_words_stay_english_in_lipi_mode(self):
+        self.sh.do("lipi on")
+        self.sh.do("note dharmo rakSati rakSitaH")      # `note` stays, the text becomes Devanagari
+        h = self.k.store.find("note")[0]
+        self.assertEqual(self.k.store.get(h).data, "धर्मो रक्षति रक्षितः")
+        self.sh.do("eval (+ 1 2)")                      # English builtins untouched
+        self.assertIn("=> 3", self.lines)
+
+    def test_sanskrit_error_hint(self):
+        self.sh.do("lipi on")
+        self.sh.do("eval (/ 1 0)")
+        self.assertTrue(any("शून्येन भागः" in l for l in self.lines))
+
+
 class TestMalware(Base):
     def setUp(self):
         super().setUp()

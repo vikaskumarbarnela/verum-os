@@ -89,6 +89,10 @@ extern volatile bool vm_preempt;           /* set by the timer, consumed by the 
 void task_yield(void);                     /* kernel.c: give the CPU to the next runnable cell (no-op outside a cell) */
 void ctx_switch(u32 **save_sp, u32 *load_sp);
 
+/* लिपि: Harvard-Kyoto -> Devanagari (lipi.c) */
+usize lipi_word(const char *in, char *out, usize cap);
+void  lipi_line(char *line, usize cap, bool (*keep)(const char *word));
+
 /* sha256 */
 void sha256(const u8 *data, usize n, u8 out[32]);
 

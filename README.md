@@ -193,6 +193,25 @@ renders an English program in Sanskrit. Five tests check that the
 vocabulary is total and that Sanskrit and English cells produce identical
 results and provenance.
 
+**Typing Sanskrit (S1).** Both shells transliterate from a Latin keyboard
+using Harvard-Kyoto, the plain-ASCII convention of Sanskrit scholarship,
+with the common spellings accepted too (`aa ii uu sh Sh chh`):
+
+```
+shell> lipi on
+shell> eval (pratyekam (kAryam (ka) (guNanam ka ka)) (zreNI 5))
+=> (0 1 4 9 16)
+shell> note dharmo rakSati rakSitaH          -> stores धर्मो रक्षति रक्षितः
+shell> lipi paribhASA                        -> परिभाषा
+```
+
+Rules: the intent word is never transliterated; English Verum Script words
+and anything that already names something in the system (a tag, cell, seat
+or program) stay Latin; `:word` forces transliteration even with lipi off;
+`\word` forces Latin. With lipi on, the hosted shell also appends Sanskrit
+to the kernel's refusals (`division by zero  (शून्येन भागः)`). Five tests
+cover round-tripping the whole vocabulary and the shell rules.
+
 **Devanagari on bare metal.** The VGA text mode cannot draw Devanagari, so
 the kernel now has a framebuffer console (`metal/kernel/fb.c`): it switches
 QEMU's VGA to 800×600×32 through the Bochs VBE ports, finds the linear

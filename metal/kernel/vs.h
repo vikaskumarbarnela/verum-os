@@ -79,6 +79,7 @@ Val *vs_run(Interp *it, Val *forms, Env *env);
 Val *vs_call(Interp *it, Val *fn, Val **argv, int argc);   /* protected apply */
 
 const char *sanskrit_op(const char *op);          /* "प्राप्" -> "get" etc. */
+bool sanskrit_is_english(const char *word);       /* English spelling of a Verum Script word? */
 int  vs_setjmp(u32 *buf);
 void vs_longjmp(u32 *buf, int v) __attribute__((noreturn));
 
