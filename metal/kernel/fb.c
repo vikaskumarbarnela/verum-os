@@ -24,6 +24,7 @@ static volatile u32 *fb = 0;
 static int cur_x = 0, cur_y = TOP;
 static u32 fg = 0xAAAAAA, bg = 0x000000;
 static char pend[64]; static int pend_n = 0;   /* bytes of a Devanagari word being assembled */
+static int px = 0;                              /* pixels already used in the current cell by Devanagari glyphs */
 static int cursor_x = -1, cursor_y = -1;
 
 static const u32 PALETTE[16] = {
@@ -86,18 +87,17 @@ static void draw_ascii(int col, int row, char c) {
             if (g[yy] & (0x80 >> xx)) fb[(y + 2 + yy) * FB_W + x + xx] = fg;
 }
 
-/* draws a shaped word; returns the number of 8px cells it used */
-static int draw_word(int col, int row, const FontWord *wd) {
-    int cells = (wd->width + FONT_ASCII_W - 1) / FONT_ASCII_W;
-    int x = col * FONT_ASCII_W, y = row * FONT_CELL_H, nbytes = cells;
-    fill(x, y, cells * FONT_ASCII_W, FONT_CELL_H, bg);
+/* draws a shaped glyph (a word or an akshara) at pixel x; returns its width in pixels */
+static int draw_glyph(int x, int row, const FontWord *wd) {
+    int nbytes = (wd->width + 7) / 8, y = row * FONT_CELL_H;
+    fill(x, y, wd->width, FONT_CELL_H, bg);
     for (int yy = 0; yy < FONT_CELL_H; yy++)
         for (int b = 0; b < nbytes; b++) {
             unsigned char byte = wd->bits[yy * nbytes + b];
             for (int i = 0; i < 8; i++)
                 if (byte & (0x80 >> i) && x + b * 8 + i < FB_W) fb[(y + yy) * FB_W + x + b * 8 + i] = fg;
         }
-    return cells;
+    return wd->width;
 }
 
 static void draw_box(int col, int row) {                 /* an unknown code point */
@@ -122,10 +122,82 @@ static void scroll(void) {
     cur_y = ROWS - 1;
 }
 
-static void advance(int cells) {
-    cur_x += cells;
+/* ---- aksharas: words the atlas has never seen are drawn syllable by syllable ---- */
+
+static u32 cp_at(const char *s, int *len) {          /* decode one UTF-8 code point */
+    u8 c = (u8)s[0];
+    if (c < 0x80) { *len = 1; return c; }
+    if ((c & 0xE0) == 0xC0) { *len = 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
+    if ((c & 0xF0) == 0xE0) { *len = 3; return ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); }
+    *len = 4; return ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F);
+}
+static bool is_consonant(u32 c) { return c >= 0x0915 && c <= 0x0939; }
+static bool is_sign(u32 c) { return (c >= 0x093E && c <= 0x094C) || c == 0x0962 || c == 0x0963; }
+static bool is_mark(u32 c) { return c >= 0x0901 && c <= 0x0903; }
+#define VIRAMA_CP 0x094D
+
+static const FontWord *find_cluster(const char *s) {   /* FONT_CLUSTER is sorted by UTF-8 bytes */
+    int lo = 0, hi = FONT_CLUSTERS - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2, c = strcmp(FONT_CLUSTER[mid].utf8, s);
+        if (c == 0) return &FONT_CLUSTER[mid];
+        if (c < 0) lo = mid + 1; else hi = mid - 1;
+    }
+    return 0;
+}
+
+/* Devanagari glyphs advance by their exact pixel width; the cell grid is caught up when the word ends */
+static void place(const FontWord *g) {
+    int x = cur_x * FONT_ASCII_W + px;
+    if (x + g->width > FB_W) { cur_x = 0; px = 0; cur_y++; if (cur_y >= ROWS) scroll(); x = 0; }
+    px += draw_glyph(x, cur_y, g);
+}
+static void end_word(void) {
+    cur_x += (px + FONT_ASCII_W - 1) / FONT_ASCII_W; px = 0;
     if (cur_x >= COLS) { cur_x = 0; cur_y++; }
     if (cur_y >= ROWS) scroll();
+}
+
+/* Draw one akshara; if the atlas lacks it, peel it apart: trailing mark, then the conjunct chain. */
+static void draw_akshara(const char *s) {
+    const FontWord *g = find_cluster(s);
+    if (g) { place(g); return; }
+    usize n = strlen(s);
+    if (n > 3) {
+        int l; u32 last = cp_at(s + n - 3, &l);
+        if (is_mark(last)) {                             /* "क्षं" -> "क्ष" + "ं" */
+            char head[64]; memcpy(head, s, n - 3); head[n - 3] = 0;
+            draw_akshara(head); draw_akshara(s + n - 3); return;
+        }
+    }
+    for (usize i = 3; i + 3 <= n; i += 3) {              /* split an unknown conjunct after its first dead consonant */
+        int l; if (cp_at(s + i, &l) == VIRAMA_CP && i + 3 < n) {
+            char head[64]; memcpy(head, s, i + 3); head[i + 3] = 0;
+            draw_akshara(head); draw_akshara(s + i + 3); return;
+        }
+    }
+    draw_box((cur_x * FONT_ASCII_W + px) / FONT_ASCII_W, cur_y); px += FONT_ASCII_W;
+}
+
+static void draw_by_aksharas(const char *s) {
+    while (*s) {
+        int l; u32 c = cp_at(s, &l);
+        const char *start = s; s += l;
+        if (is_consonant(c)) {
+            for (;;) {                                   /* C (् C)* */
+                int l2; if (*s && cp_at(s, &l2) == VIRAMA_CP) {
+                    int l3; if (s[l2] && is_consonant(cp_at(s + l2, &l3))) { s += l2 + l3; continue; }
+                    s += l2;                             /* dead consonant at the end */
+                }
+                break;
+            }
+            int l4; if (*s && is_sign(cp_at(s, &l4))) s += l4;
+        }
+        int l5; if (*s && is_mark(cp_at(s, &l5))) s += l5;
+        char cluster[64]; usize n = (usize)(s - start); if (n >= sizeof cluster) n = sizeof cluster - 1;
+        memcpy(cluster, start, n); cluster[n] = 0;
+        draw_akshara(cluster);
+    }
 }
 
 static void flush_word(void) {
@@ -133,14 +205,9 @@ static void flush_word(void) {
     pend[pend_n] = 0;
     const FontWord *hit = 0;
     for (int i = 0; i < FONT_WORDS; i++) if (strcmp(FONT_WORD[i].utf8, pend) == 0) { hit = &FONT_WORD[i]; break; }
-    if (hit) {
-        int cells = (hit->width + FONT_ASCII_W - 1) / FONT_ASCII_W;
-        if (cur_x + cells > COLS) { cur_x = 0; cur_y++; if (cur_y >= ROWS) scroll(); }
-        advance(draw_word(cur_x, cur_y, hit));
-    } else {
-        for (int i = 0; i < pend_n; i++)
-            if ((pend[i] & 0xC0) != 0x80) { draw_box(cur_x, cur_y); advance(1); }   /* one box per code point */
-    }
+    if (hit) place(hit);                                 /* a known word: the best shaping */
+    else draw_by_aksharas(pend);                         /* anything else: syllable by syllable */
+    end_word();
     pend_n = 0;
 }
 
@@ -167,7 +234,7 @@ void fb_putc(char c) {
 void fb_clear(void) {
     cursor_hide();
     fill(0, TOP * FONT_CELL_H, FB_W, FB_H - TOP * FONT_CELL_H, bg);
-    cur_x = 0; cur_y = TOP; pend_n = 0;
+    cur_x = 0; cur_y = TOP; pend_n = 0; px = 0;
     cursor_show();
 }
 

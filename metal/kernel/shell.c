@@ -82,7 +82,11 @@ static int resolve_obj(const char *ref) {
 static void preview(Val *v, char *out, usize cap) {
     v_show(v, out, cap);
     for (char *p = out; *p; p++) if (*p == '\n') *p = ' ';
-    if (strlen(out) >= cap - 1) { out[cap - 4] = '.'; out[cap - 3] = '.'; out[cap - 2] = '.'; }
+    if (strlen(out) >= cap - 1) {
+        usize cut = cap - 4;
+        while (cut > 0 && ((u8)out[cut] & 0xC0) == 0x80) cut--;     /* never cut inside a UTF-8 character */
+        out[cut] = '.'; out[cut + 1] = '.'; out[cut + 2] = '.'; out[cut + 3] = 0;
+    }
 }
 
 static void short_hash(const char *h, char *out, int n) { memcpy(out, h, (usize)n); out[n] = 0; }
@@ -267,7 +271,7 @@ static bool dispatch(char *line) {
         int hits[64]; int n = store_find(argv[1], hits, 64);
         if (!n) kprintf("nothing tagged '%s'\n", argv[1]);
         for (int i = 0; i < n; i++) {
-            Obj *o = store_get(hits[i]); char h[13]; short_hash(o->hash, h, 12); char pv[44]; preview(o->data, pv, sizeof pv);
+            Obj *o = store_get(hits[i]); char h[13]; short_hash(o->hash, h, 12); char pv[72]; preview(o->data, pv, sizeof pv);
             kprintf("  %s  %s  by %s  %s\n", h, o->kind, o->by, pv);
         }
         return true;

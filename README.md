@@ -222,8 +222,13 @@ build time: it renders an 8×16 ASCII font and every Sanskrit word the kernel
 can show (the whole vocabulary plus every Devanagari word in the embedded
 cells) with Windows GDI and the Nirmala UI font into `kernel/font.h`. At run
 time the console draws ASCII glyph by glyph and Devanagari word by word from
-that atlas; a word it has never seen shows as one box per code point. The
-generated `font.h` is committed so Linux CI builds without GDI.
+that atlas. Words the atlas has never seen (S2a) are split into aksharas
+(syllables: a consonant chain, its vowel sign, and any anusvara or visarga)
+and drawn from a second atlas of ~4,900 pre-shaped syllables, with
+pixel-accurate advance, so freshly typed or computed Sanskrit renders too;
+only a conjunct outside the shaped set falls back to its parts. The
+generated `font.h` is committed so Linux CI builds without GDI; the kernel
+is ~590 KiB with both atlases.
 
 ### One small program, three ways
 
