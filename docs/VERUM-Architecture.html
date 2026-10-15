@@ -120,6 +120,7 @@ dl.cmds dd { margin: 0; }
     <li><a href="#cells">15. Writing a cell</a></li>
     <li><a href="#compare">16. Python vs bare metal</a></li>
     <li><a href="#limits">17. Limits and next steps</a></li>
+    <li><a href="#debugger">17b. The debugger</a></li>
     <li><a href="#roadmap">18. Language roadmap</a></li>
   </ol>
 </nav>
@@ -221,6 +222,7 @@ dl.cmds dd { margin: 0; }
 │   ├── caps.py                  <span class="d">Cap, CapTable: mint / attenuate / revoke / check</span>
 │   ├── vm.py                    <span class="d">Verum Script: tokenizer (with line numbers), parser, tree-walking Interp (the oracle), builtins, budgets</span>
 │   ├── bytecode.py              <span class="d">S2b: compiler to 14-instruction bytecode, lexical addressing, VM with trace hook and source lines</span>
+│   ├── debug.py                 <span class="d">D1: breakpoints, step, inspect, profile on the VM's trace hook; worker-thread pause</span>
 │   ├── sanskrit.py              <span class="d">संस्कृतलिपि: Sanskrit names for every form, builtin, capability and operation</span>
 │   ├── translit.py              <span class="d">लिपि: Harvard-Kyoto Latin -> Devanagari (and back), shell line rules</span>
 │   ├── kernel.py                <span class="d">Kernel: seats, cells, grant/link/send/delegate, syscall gate, scheduler, replay, fork</span>
@@ -903,7 +905,8 @@ nil? number? string? list? dict?</code></pre>
 <tr><td>Limits</td><td>unbounded tables</td><td>512 objects · 256 caps · 12 cells · 8 seats · 2048 ledger entries · 16-message inboxes · 4 MiB ledger + 4 MiB attic</td></tr>
 <tr><td>Console / input</td><td>stdout / <code>input()</code></td><td>800×600 framebuffer (VBE) with ASCII font + Devanagari word atlas; VGA text fallback / interrupt-driven PS/2 keyboard</td></tr>
 <tr><td>Tokens</td><td><code>secrets.token_hex(16)</code></td><td>SHA-256(rdtsc, heap, counter)</td></tr>
-<tr><td>Tests</td><td>29 unit tests + fuzzer (3 invariants), CI on every push</td><td><code>build.py test</code>: work → reboot → rewind → reboot → restore → seats → login → delegate → preempt → alarm/bg → trap, with screen dumps</td></tr>
+<tr><td>Debugger</td><td>break/step/inspect/where/profile (worker thread)</td><td>break/step/inspect/where/profile (pause = preemption)</td></tr>
+<tr><td>Tests</td><td>38 unit tests + fuzzer (3 invariants), CI on every push (public repo)</td><td><code>build.py test</code>: work → reboot → rewind → reboot → restore → seats → login → delegate → preempt → alarm/bg → trap, with screen dumps</td></tr>
 </tbody></table></div>
 
 <!-- ============================================================ 17 -->
@@ -917,6 +920,21 @@ nil? number? string? list? dict?</code></pre>
   <li><strong>The genesis seat is trusted.</strong> <code>shell</code> holds the genesis capabilities; other seats hold only what it grants them. A seat may carry a passphrase (salted SHA-256; never stored in clear), and every login attempt is recorded. The shell seat itself has no passphrase yet; giving it one is a one-line change in genesis.</li>
   <li><strong>Booting a physical PC from USB</strong> needs a GRUB image around the same <code>verum.elf</code>; the kernel itself does not change.</li>
 </ul>
+<h2 id="debugger">17b. The debugger (D1)</h2>
+<p>Debugging was declared a main target, and the design hands it an unfair advantage: every effect is in the ledger, every run is deterministic, and the bytecode VM carries a source line on every instruction and a hook it consults at the same point where it charges fuel and checks the preempt flag. The debugger is therefore a feature of the VM, not a retrofit, and it is the same on both kernels.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Intent</th><th>What it does</th><th>Mechanism</th></tr></thead>
+<tbody>
+<tr><td><code>break &lt;cell&gt; &lt;line&gt;</code></td><td>pause the cell when it <em>enters</em> that source line (a call returning into the line does not re-fire)</td><td>the hook compares the line of the instruction about to run with the previous instruction's line</td></tr>
+<tr><td><code>step</code></td><td>run to the next new line, into calls</td><td>a one-shot flag checked by the same hook</td></tr>
+<tr><td><code>continue</code></td><td>resume until the next breakpoint or the end of the message</td><td>clears the pause</td></tr>
+<tr><td><code>inspect</code></td><td>every variable of the paused frame, by name (Sanskrit names included)</td><td>the compiler records slot names; the frame is the live static-link frame</td></tr>
+<tr><td><code>stack</code> · <code>where</code></td><td>the operand stack and fuel so far; the surrounding source with a marker</td><td>snapshot taken at the pause</td></tr>
+<tr><td><code>profile on|off|show</code></td><td>instructions executed per function, as counts and percentages</td><td>a counter per compiled function; deterministic, identical on both kernels for the same input</td></tr>
+</tbody></table></div>
+<p><strong>How a pause works.</strong> Hosted: the scheduler runs on a worker thread; the hook blocks that thread on an event and the shell inspects the snapshot. Bare metal: pausing <em>is</em> preemption with a different trigger — the hook yields the cell to the scheduler, which skips cells marked paused until <code>continue</code> or <code>step</code> clears the mark; the cell's stack and interpreter stay exactly where they were. Errors also report their line and show the source text (<code>unbound symbol nope at line 3</code> / <code>line 3: (nope)))</code>).</p>
+<p><strong>Why it is reproducible.</strong> A cell's run depends only on the ledger prefix and the message; both are recorded. The same breakpoint pauses at the same instruction on every replay, on either kernel, which turns a bug report into a ledger prefix plus a message rather than a description.</p>
+
 <h2 id="roadmap">18. Language roadmap</h2>
 <div class="tablewrap"><table>
 <thead><tr><th>Shortcut</th><th>Task</th><th>Status</th></tr></thead>

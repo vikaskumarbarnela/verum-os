@@ -154,6 +154,9 @@ SCRIPT = [
     "@wait 3.5",
     "log", "alarms", "bg off", "unalarm 0",
     "@dump alarm",
+    "spawn dbg abhajya", "grant dbg console print", "break dbg 4", "send dbg 30", "run", "where", "inspect", "step", "inspect", "unbreak dbg", "continue",
+    "profile on", "send dbg 40", "run", "profile show",
+    "@dump debugger",
     "uptime", "trap",
     "@dump trap",
 ]

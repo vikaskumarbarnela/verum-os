@@ -24,7 +24,8 @@ static const char *HELP =
 "  attic / restore <k>      branches cut off by rewind; bring one back\n"
 "  dash                     panel view          demo              guided tour\n"
 "  uptime                   timer since boot    trap              raise a CPU exception (halts)\n"
-"  lipi on|off / lipi <w>   type Sanskrit on a Latin keyboard: paribhASA -> परिभाषा;  :word forces it\n";
+"  lipi on|off / lipi <w>   type Sanskrit on a Latin keyboard: paribhASA -> परिभाषा;  :word forces it\n"
+"  break <cell> <line> / unbreak <cell>   step / continue / inspect / stack / where   profile on|off|show\n";
 
 static bool lipi_on = false;                       /* `lipi on`: typed Latin becomes Devanagari */
 /* words that stay Latin under lipi: the English surface of Verum Script, and anything that already names
@@ -179,6 +180,41 @@ static int holder_cap(const char *holder, const char *label) {
     return (s && k >= 0) ? s->caps[k] : -1;
 }
 
+/* ---------------------------------------------------------------- D1 debugger helpers */
+
+/* line `n` (1-based) of `src` into `out`; false if there is no such line */
+static bool source_line(const char *src, int n, char *out, usize cap) {
+    int line = 1; const char *p = src;
+    while (*p && line < n) { if (*p == '\n') line++; p++; }
+    if (line < n || !*p) return false;
+    while (*p == ' ') p++;
+    usize i = 0; while (*p && *p != '\n' && i + 1 < cap) out[i++] = *p++;
+    if (*p && *p != '\n' && i > 0) {                   /* truncated: drop an incomplete trailing UTF-8 sequence */
+        usize lead = i;
+        while (lead > 0 && ((u8)out[lead - 1] & 0xC0) == 0x80) lead--;   /* back to the last lead byte */
+        if (lead > 0) {
+            u8 b = (u8)out[lead - 1]; usize need = b >= 0xF0 ? 4 : b >= 0xE0 ? 3 : b >= 0xC0 ? 2 : 1;
+            if (i - (lead - 1) < need) i = lead - 1;
+        }
+    }
+    out[i] = 0;
+    return true;
+}
+
+static Cell *paused_cell(void) {
+    Cell *cs[MAX_CELLS]; int n = cell_count(cs, MAX_CELLS);
+    for (int i = 0; i < n; i++) if (cs[i]->dbg_paused) return cs[i];
+    return 0;
+}
+
+static void show_pause(Cell *p) {
+    char *src = store_get(p->code)->data->s; char text[100]; source_line(src, p->dbg_line, text, sizeof text);
+    vga_color(C_YELLOW, C_BLACK);
+    kprintf("paused in cell %s at line %d (in %s): %s\n", p->name, p->dbg_line, bc_code_name(p->dbg_code), text);
+    vga_color(C_GREY, C_BLACK);
+    say("   step / continue / inspect / stack / where");
+}
+
 /* ---------------------------------------------------------------- dash: the panel view */
 
 static void dash(void) {
@@ -239,6 +275,63 @@ static bool dispatch(char *line) {
     if (!strcmp(cmd, "demo")) { demo(); return true; }
     if (!strcmp(cmd, "dash")) { dash(); return true; }
     if (!strcmp(cmd, "whoami")) { kprintf("%s\n", k_me); return true; }
+    /* ---- D1 debugger ---- */
+    if (!strcmp(cmd, "break")) {
+        if (argc < 3) { refuse("break <cell> <line>"); return true; }
+        Cell *c = cell_find(argv[1]); int ln = atoi(argv[2]);
+        if (!c) { refuse("no such cell"); return true; }
+        if (c->dbg_nlines >= 8) { refuse("at most 8 breakpoints per cell"); return true; }
+        c->dbg_lines[c->dbg_nlines++] = (u16)ln; kernel_debug_refresh();
+        char *src = store_get(c->code)->data->s; char text[100]; source_line(src, ln, text, sizeof text);
+        kprintf("breakpoint: %s line %d: %s\n", argv[1], ln, text);
+        return true;
+    }
+    if (!strcmp(cmd, "unbreak")) {
+        Cell *c = argc > 1 ? cell_find(argv[1]) : 0;
+        if (!c) { refuse("unbreak <cell>"); return true; }
+        c->dbg_nlines = 0; kernel_debug_refresh(); say("removed");
+        return true;
+    }
+    if (!strcmp(cmd, "step") || !strcmp(cmd, "continue")) {
+        Cell *p = paused_cell();
+        if (!p) { refuse("no cell is paused (break <cell> <line>, then run)"); return true; }
+        p->dbg_step = !strcmp(cmd, "step"); p->dbg_paused = false; kernel_debug_refresh();
+        kernel_run(1);
+        if (!paused_cell()) kprintf("%s finished its message\n", p->name);
+        else show_pause(paused_cell());
+        return true;
+    }
+    if (!strcmp(cmd, "inspect")) {
+        Cell *p = paused_cell();
+        if (!p) { refuse("no cell is paused"); return true; }
+        int n = bc_code_nslots(p->dbg_code);
+        for (int i = 0; i < n; i++) { Val *v = bc_frame_slot(p->dbg_frame, i); char buf[80]; v_show(v ? v : v_nil(), buf, sizeof buf); kprintf("  %s  %s\n", bc_slot_name(p->dbg_code, i), buf); }
+        return true;
+    }
+    if (!strcmp(cmd, "stack")) {
+        Cell *p = paused_cell();
+        if (!p) { refuse("no cell is paused"); return true; }
+        kprintf("  operand stack (%d):", p->dbg_sp);
+        for (int i = 0; i < p->dbg_sp; i++) { char buf[40]; v_show(p->dbg_stack[i], buf, sizeof buf); kprintf(" %s", buf); }
+        kprintf("\n  fuel used so far: %u\n", p->it ? p->it->used : 0);
+        return true;
+    }
+    if (!strcmp(cmd, "where")) {
+        Cell *p = paused_cell();
+        if (!p) { refuse("no cell is paused"); return true; }
+        char *src = store_get(p->code)->data->s;
+        for (int n = p->dbg_line > 2 ? p->dbg_line - 2 : 1; n <= p->dbg_line + 2; n++) { char text[100]; if (!source_line(src, n, text, sizeof text)) break; kprintf("  %s %d: %s\n", n == p->dbg_line ? ">>" : "  ", n, text); }
+        return true;
+    }
+    if (!strcmp(cmd, "profile")) {
+        if (argc > 1 && !strcmp(argv[1], "on")) { k_profile = true; bc_profile_reset(); kernel_debug_refresh(); say("profiling on: run, then: profile show"); return true; }
+        if (argc > 1 && !strcmp(argv[1], "off")) { k_profile = false; kernel_debug_refresh(); say("profiling off"); return true; }
+        struct Code *top[10]; int n = bc_profile_top(top, 10); u32 total = 0;
+        for (int i = 0; i < n; i++) total += bc_profile_of(top[i]);
+        if (!n) say("no profile yet (profile on, then run)");
+        for (int i = 0; i < n; i++) kprintf("  %s  %u instructions  %u%%\n", bc_code_name(top[i]), bc_profile_of(top[i]), total ? bc_profile_of(top[i]) * 100 / total : 0);
+        return true;
+    }
     if (!strcmp(cmd, "lipi")) {
         if (argc < 2) { kprintf("lipi is %s: type paribhASA for परिभाषा, saMskRta for संस्कृत; :word forces it, \\word keeps Latin\n", lipi_on ? "on" : "off"); return true; }
         if (!strcmp(argv[1], "on") || !strcmp(argv[1], "off")) { lipi_on = !strcmp(argv[1], "on"); kprintf("lipi %s\n", lipi_on ? "on: Latin letters become Devanagari (intents and English Verum Script stay)" : "off"); return true; }
@@ -400,6 +493,7 @@ static bool dispatch(char *line) {
         int t = kernel_run(argc > 1 ? atoi(argv[1]) : 100);
         Cell *cs[MAX_CELLS]; int n = cell_count(cs, MAX_CELLS), paused = 0;
         for (int i = 0; i < n; i++) if (cs[i]->running) paused++;
+        if (paused_cell()) { show_pause(paused_cell()); return true; }
         kprintf("ran %d round(s) in %u ms; now at tick %u%s\n", t, uptime_ms() - t0, k_tick, paused ? " - some cells are paused mid-run; `run` again to continue" : "");
         return true;
     }

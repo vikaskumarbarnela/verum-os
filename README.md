@@ -278,7 +278,14 @@ right-hand rows: the Python program can read any file and open any socket
 on the machine; the cell cannot do anything it was not handed, cannot run
 or allocate without limit, and leaves a provable record of what it did.
 
-### The debugger (D1, hosted)
+### The debugger (D1, both kernels)
+
+The same commands work on bare metal (`break`, `unbreak`, `step`,
+`continue`, `inspect`, `stack`, `where`, `profile`). There, pausing a cell
+*is* the preemption machinery with a different trigger: the VM's debug hook
+yields the cell to the scheduler, which will not resume it until `continue`
+or `step` clears the pause. Profiles agree between the two kernels for the
+same program and input.
 
 Cells run on the bytecode VM, which carries a source line on every
 instruction and a per-instruction trace hook, so the debugger is a feature

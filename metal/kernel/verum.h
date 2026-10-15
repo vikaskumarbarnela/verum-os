@@ -110,7 +110,26 @@ typedef struct {
     /* scheduling: a cell with work gets its own kernel stack and can be paused between VM steps */
     u32 *sp; u8 *stack; bool running; bool mid_run; u32 slices;
     u8 *arena; usize arena_used, arena_peak; Interp *it;   /* per-run memory, reset each message; the live interpreter */
+    /* D1 debugger state */
+    u16 dbg_lines[8]; int dbg_nlines;                     /* breakpoints: source lines */
+    bool dbg_step, dbg_paused;                            /* pause at the next new line; paused now */
+    u16 dbg_last_line, dbg_line;
+    struct Code *dbg_code; struct Frame *dbg_frame; int dbg_pc, dbg_sp; Val *dbg_stack[8];
 } Cell;
+
+/* D1 debugger (bc.c + kernel.c) */
+extern bool bc_debug;                                    /* any breakpoint, step or profile active */
+extern bool k_profile;
+const char *bc_code_name(struct Code *c);
+const char *bc_slot_name(struct Code *c, int i);
+int   bc_code_nslots(struct Code *c);
+Val  *bc_frame_slot(struct Frame *f, int i);
+void  bc_profile_reset(void);
+int   bc_profile_top(struct Code **out, int cap);
+u32   bc_profile_of(struct Code *c);
+int   Ins_line_of(struct Code *c, int pc);
+void  bc_profile_count(struct Code *c);
+void  kernel_debug_refresh(void);                        /* recompute bc_debug from breakpoints/step/profile */
 #define TASK_STACK (512u * 1024u)
 #define ARENA_SIZE (8u * 1024u * 1024u)                /* memory budget per message */
 

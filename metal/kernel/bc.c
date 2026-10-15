@@ -17,6 +17,8 @@ typedef struct Code {
     const char *name;
     int nparams, nslots;
     bool captures;                                   /* contains CLOSURE: its frames may outlive the call */
+    const char *slotnames[64];                       /* slot -> variable name, for `inspect` */
+    u32 prof;                                        /* instructions executed, for `profile` */
     Ins *ins; int n, cap;
     Val **consts; int nconsts, ccap;
     struct Code **codes; int ncodes, kcap;
@@ -29,9 +31,15 @@ void task_yield(void);
 
 /* ---------------------------------------------------------------- code objects */
 
+#define MAX_CODES 512
+static Code *all_codes[MAX_CODES]; static int n_all_codes = 0;    /* registry for the profiler */
+bool bc_debug = false;                                           /* any breakpoint, step or profile active */
+extern void bc_debug_hook(Interp *it, struct Code *code, int pc, int line, struct Frame *frame, Val **stack, int sp);
+
 static Code *code_new(const char *name, int nparams) {
     Code *c = kalloc(sizeof *c);
     c->name = name; c->nparams = nparams; c->nslots = nparams;
+    if (n_all_codes < MAX_CODES) all_codes[n_all_codes++] = c;
     c->cap = 32; c->ins = kalloc(sizeof(Ins) * c->cap);
     c->ccap = 8; c->consts = kalloc(sizeof(Val *) * c->ccap);
     c->kcap = 4; c->codes = kalloc(sizeof(Code *) * c->kcap);
@@ -76,6 +84,7 @@ static int scope_lookup(Scope *s, const char *name) {
 static int scope_declare(Scope *s, const char *name) {
     Block *b = &s->blocks[s->nblocks - 1];
     if (b->n == MAX_BLOCK_NAMES) cerr("too many names in one block", 0);
+    if (s->code->nslots < 64) s->code->slotnames[s->code->nslots] = name;
     b->names[b->n] = name; b->slots[b->n] = s->code->nslots++;
     return b->slots[b->n++];
 }
@@ -107,6 +116,7 @@ static Code *lambda_code(Val *params, Val *forms, int start, Scope *s, const cha
     for (int i = 0; i < params->list.n; i++) {
         if (params->list.items[i]->t != T_SYM) cerr("lambda: parameter is not a symbol", params->line);
         Block *b = &inner->blocks[0]; b->names[b->n] = params->list.items[i]->s; b->slots[b->n] = i; b->n++;
+        if (i < 64) fn->slotnames[i] = params->list.items[i]->s;
     }
     body(forms, start, inner, fn);
     emit(fn, RET, 0, 0, 0);
@@ -279,6 +289,7 @@ static Val *execute(Interp *it, Code *code, Frame *frame) {
     for (;;) {
         if (++it->used > it->fuel) vs_error(it, "fuel exhausted");
         if (vm_preempt) { vm_preempt = false; task_yield(); }
+        if (bc_debug) bc_debug_hook(it, code, pc, ins[pc].line, frame, stack, sp);   /* breakpoints, step, profile */
         Ins *inp = &ins[pc++]; Ins in = *inp;
         switch (in.op) {
         case LOCAL: {
@@ -375,3 +386,26 @@ Val *bc_run_source(Interp *it, const char *src, Env *globals) {
     Frame *f = kalloc(sizeof *f); f->slots = kalloc(sizeof(Val *) * (code->nslots ? code->nslots : 1)); f->parent = 0;
     return execute(it, code, f);
 }
+
+/* ---------------------------------------------------------------- debugger support */
+
+const char *bc_code_name(struct Code *c) { return c->name; }
+const char *bc_slot_name(struct Code *c, int i) { return (i >= 0 && i < 64 && c->slotnames[i]) ? c->slotnames[i] : "?"; }
+int bc_code_nslots(struct Code *c) { return c->nslots; }
+Val *bc_frame_slot(struct Frame *f, int i) { return f->slots[i]; }
+void bc_profile_reset(void) { for (int i = 0; i < n_all_codes; i++) all_codes[i]->prof = 0; }
+void bc_profile_count(struct Code *c) { c->prof++; }
+/* top entries by instruction count; returns how many were written */
+int bc_profile_top(struct Code **out, int cap) {
+    int n = 0;
+    for (int i = 0; i < n_all_codes; i++) {
+        Code *c = all_codes[i]; if (!c->prof) continue;
+        int j = n < cap ? n : cap - 1;
+        if (n < cap) n++;
+        while (j > 0 && out[j - 1]->prof < c->prof) { out[j] = out[j - 1]; j--; }
+        if (j < cap) out[j] = c;
+    }
+    return n;
+}
+u32 bc_profile_of(struct Code *c) { return c->prof; }
+int Ins_line_of(struct Code *c, int pc) { return (pc >= 0 && pc < c->n) ? c->ins[pc].line : 0; }

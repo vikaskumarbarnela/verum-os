@@ -420,6 +420,41 @@ Val *kernel_syscall(Interp *it, Val *cap, const char *op, Val **argv, int argc) 
     vs_error(it, "unknown capability kind");
 }
 
+/* ---------------------------------------------------------------- D1: the debugger hook
+ *
+ * Called by the bytecode VM before every instruction while bc_debug is set.
+ * Pausing a cell is the preemption machinery with a different trigger: the
+ * cell yields to the scheduler and is not resumed until `continue` or `step`
+ * clears dbg_paused. */
+
+bool k_profile = false;
+
+void kernel_debug_refresh(void) {
+    bool any = k_profile;
+    for (int i = 0; i < MAX_CELLS; i++) if (cells[i].alive && (cells[i].dbg_nlines || cells[i].dbg_step)) any = true;
+    bc_debug = any;
+}
+
+void bc_debug_hook(Interp *it, struct Code *code, int pc, int line, struct Frame *frame, Val **stack, int sp) {
+    Cell *c = current;
+    if (!c) return;
+    if (k_profile) bc_profile_count(code);
+    if (!line || line == c->dbg_last_line) return;
+    c->dbg_last_line = (u16)line;
+    bool hit = c->dbg_step;
+    if (!hit) {
+        /* a breakpoint fires on entering the line, not when a call returns into it */
+        bool entering = pc == 0 || ((Ins_line_of)(code, pc - 1)) != line;
+        if (entering) for (int i = 0; i < c->dbg_nlines; i++) if (c->dbg_lines[i] == line) hit = true;
+    }
+    if (!hit) return;
+    c->dbg_step = false;
+    c->dbg_paused = true; c->dbg_code = code; c->dbg_frame = frame; c->dbg_pc = pc; c->dbg_line = (u16)line;
+    c->dbg_sp = sp < 8 ? sp : 8; for (int i = 0; i < c->dbg_sp; i++) c->dbg_stack[i] = stack[sp - c->dbg_sp + i];
+    (void)it;
+    task_yield();                                      /* back to the scheduler; resumed when un-paused */
+}
+
 /* ---------------------------------------------------------------- scheduler
  *
  * Every cell with work runs on its own kernel stack. The scheduler (on the
@@ -451,7 +486,7 @@ static void run_one_message(Cell *c) {
     c->mid_run = true;
     if (!handler || (handler->t != T_FN && handler->t != T_BFN)) { ok = false; err = "cell defines no (on-message from body)"; }
     else if (!vs_call(&it, handler, args, 2)) { ok = false; err = it.error; }
-    c->mid_run = false; c->it = 0;
+    c->mid_run = false; c->it = 0; c->dbg_last_line = 0;
     if (c->arena_used > c->arena_peak) c->arena_peak = c->arena_used;
     c->runs++; c->fuel_used += it.used;
     if (!ok) {
@@ -499,13 +534,13 @@ int kernel_run(int max_rounds) {
             Cell *c = &cells[i];
             if (!c->alive) continue;
             if (!c->running && c->in_count) task_start(c);
-            if (c->running) runnable++;
+            if (c->running && !c->dbg_paused) runnable++;
         }
         if (!runnable || rounds >= max_rounds) return rounds;
         k_tick++; rounds++;
         for (int i = 0; i < MAX_CELLS; i++) {
             Cell *c = &cells[i];
-            if (!c->alive || !c->running) continue;
+            if (!c->alive || !c->running || c->dbg_paused) continue;   /* a paused cell waits for the debugger */
             current = c;
             heap_arena_use(c->arena, ARENA_SIZE, &c->arena_used);
             vm_preempt = false; vm_deadline = uptime_ticks + SLICE_TICKS;
