@@ -213,6 +213,45 @@ static Val *need(Interp *it, Val *v, VType t, const char *what) {
 #define NEED_LIST(v) need(it, v, T_LIST, "expected a list")
 #define ARGS(n) if (argc != (n)) vs_error(it, "wrong number of arguments")
 
+/* ---------------------------------------------------------------- संस्कृतलिपि (UTF-8 byte strings) */
+
+static const struct { const char *sk, *en; } SANSKRIT[] = {
+    {"परिभाषा", "define"}, {"कार्यम्", "lambda"}, {"अस्तु", "let"}, {"यदि", "if"}, {"विकल्पः", "cond"}, {"अन्यथा", "else"},
+    {"क्रमेण", "do"}, {"च", "and"}, {"वा", "or"}, {"उद्धृतम्", "quote"}, {"आह्वानम्", "call"}, {"सन्देशे", "on-message"},
+    {"योगः", "+"}, {"वियोगः", "-"}, {"गुणनम्", "*"}, {"भागः", "/"}, {"शेषफलम्", "mod"},
+    {"समम्", "="}, {"न्यूनम्", "<"}, {"अधिकम्", ">"}, {"न्यूनसमम्", "<="}, {"अधिकसमम्", ">="}, {"न", "not"},
+    {"शून्यम्?", "nil?"}, {"सूची", "list"}, {"प्रथमः", "head"}, {"शेषः", "tail"}, {"स्थानम्", "nth"}, {"परिमाणम्", "len"},
+    {"योजय", "append"}, {"पुरतः", "cons"}, {"श्रेणी", "range"}, {"विपर्ययः", "reverse"},
+    {"कोशः", "dict"}, {"गृहाण", "get"}, {"कुञ्चिकाः", "keys"}, {"संयोजय", "assoc"},
+    {"वाक्यम्", "str"}, {"विभज", "split"}, {"संयुज", "join"}, {"बृहत्", "upper"}, {"लघु", "lower"}, {"अन्तर्गतम्", "contains"},
+    {"खण्डः", "slice"}, {"दोषः", "error"}, {"प्रत्येकम्", "map"}, {"चयनम्", "filter"}, {"संकलनम्", "reduce"},
+    {"भाण्डारः", "store"}, {"पटलः", "console"}, {"घटिका", "clock"}, {"यन्त्रम्", "kernel"}, {"अग्रिमः", "next"},
+    {"प्रेषकः", "from"}, {"विषयः", "body"}, {"सत्यम्", "true"}, {"असत्यम्", "false"}, {"शून्यम्", "nil"},
+};
+static const struct { const char *sk, *en; } SANSKRIT_OPS[] = {
+    {"प्राप्", "get"}, {"स्थापय", "put"}, {"अन्विष्य", "find"}, {"वंशः", "lineage"}, {"मुद्रय", "print"},
+    {"अधुना", "now"}, {"प्रेषय", "send"}, {"समर्पय", "delegate"}, {"कोष्ठाः", "cells"},
+};
+
+/* Devanagari digit U+0966..U+096F is the UTF-8 sequence E0 A5 A6..AF */
+static void sanskrit_canonical(char *tok, usize cap) {
+    for (usize i = 0; i < sizeof SANSKRIT / sizeof SANSKRIT[0]; i++)
+        if (strcmp(tok, SANSKRIT[i].sk) == 0) { strcpy(tok, SANSKRIT[i].en); return; }
+    char out[64]; usize n = 0; bool digits = tok[0] != 0;
+    for (const u8 *p = (const u8 *)tok; *p && n + 1 < sizeof out;) {
+        if (p[0] == 0xE0 && p[1] == 0xA5 && p[2] >= 0xA6 && p[2] <= 0xAF) { out[n++] = (char)('0' + (p[2] - 0xA6)); p += 3; }
+        else if (*p == '-' && p == (const u8 *)tok) { out[n++] = '-'; p++; }
+        else { digits = false; break; }
+    }
+    if (digits && n) { out[n] = 0; if (strlen(out) < cap) strcpy(tok, out); }
+}
+
+const char *sanskrit_op(const char *op) {
+    for (usize i = 0; i < sizeof SANSKRIT_OPS / sizeof SANSKRIT_OPS[0]; i++)
+        if (strcmp(op, SANSKRIT_OPS[i].sk) == 0) return SANSKRIT_OPS[i].en;
+    return op;
+}
+
 /* ---------------------------------------------------------------- reader */
 
 static const char *rd_err;
@@ -257,6 +296,7 @@ static Val *read_form(void) {
     while (*rd && *rd != ' ' && *rd != '\t' && *rd != '\n' && *rd != '\r' && *rd != '(' && *rd != ')' && *rd != ';' && n + 1 < sizeof tok)
         tok[n++] = *rd++;
     tok[n] = 0;
+    sanskrit_canonical(tok, sizeof tok);          /* संस्कृतलिपि: Sanskrit words and digits become canonical */
     if (strcmp(tok, "true") == 0) return v_bool(true);
     if (strcmp(tok, "false") == 0) return v_bool(false);
     if (strcmp(tok, "nil") == 0) return v_nil();

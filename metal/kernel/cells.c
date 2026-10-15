@@ -57,7 +57,18 @@ static const char WORKER[] =
 "  (let ((total (work n)))\n"
 "    (call console \"print\" \"finished: sum of\" (* n n) \"products =\" total)))\n";
 
+/* संस्कृतलिपि: the same word counter, written in Sanskrit. The console prints ASCII so the VGA text mode can show it. */
+static const char GANANA[] =
+"(परिभाषा (शब्दगणना वाक्यम्) (परिमाणम् (विभज वाक्यम् \" \")))\n"
+"(परिभाषा (सन्देशे प्रेषकः विषयः)\n"
+"  (अस्तु ((वस्तु (आह्वानम् भाण्डारः \"प्राप्\" विषयः))\n"
+"          (लेखः  (गृहाण वस्तु \"data\"))\n"
+"          (फलम्  (कोशः \"words\" (शब्दगणना लेखः) \"chars\" (परिमाणम् लेखः))))\n"
+"    (आह्वानम् पटलः \"मुद्रय\" \"sanskrit cell counted\" (गृहाण फलम् \"words\") \"words\")\n"
+"    (आह्वानम् भाण्डारः \"स्थापय\" \"stats\" फलम् (सूची \"stats\") (सूची (गृहाण वस्तु \"hash\")))))\n";
+
 const BuiltinCell BUILTIN_CELLS[] = {
+    { "ganana", GANANA },
     { "worker", WORKER },
     { "wordcount", WORDCOUNT }, { "shout", SHOUT }, { "malware", MALWARE }, { "echo", ECHO }, { "deleg", DELEG },
 };

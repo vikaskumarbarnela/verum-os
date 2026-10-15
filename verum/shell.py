@@ -12,7 +12,7 @@ import shlex
 import sys
 from typing import List, Optional
 
-from . import vm
+from . import sanskrit, vm
 from .caps import CapError
 from .kernel import SHELL, Kernel, KernelError
 
@@ -262,6 +262,16 @@ class Shell:
         if used:
             self.out(f"   (capabilities used: {', '.join(used)}; fuel {it.used})")
 
+    def cmd_sanskrit(self, a, line):
+        """Show a code object in संस्कृतलिपि, or translate a file: sanskrit <hash|name|path.vs>"""
+        ref = a[0]
+        if os.path.exists(ref):
+            with open(ref, encoding="utf-8") as f:
+                src = f.read()
+        else:
+            src = self.k.store.get(self._code_hash(ref)).data
+        self.out(sanskrit.to_sanskrit(src))
+
     def cmd_ledger(self, a, line):
         n = int(a[0]) if a else 15
         for e in self.k.ledger.entries[-n:]:
@@ -308,6 +318,10 @@ class Shell:
 
 
 def repl(state_dir: Optional[str]) -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")      # Devanagari on Windows consoles
+    except (AttributeError, ValueError):
+        pass
     k = Kernel(state_dir)
     sh = Shell(k)
     sh.out(f"VERUM OS  - {len(k.store)} objects, {len(k.cells)} cells, ledger head {k.ledger.head[:12]}")

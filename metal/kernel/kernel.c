@@ -343,6 +343,7 @@ static void deny(Interp *it, const char *why) {
 
 Val *kernel_syscall(Interp *it, Val *cap, const char *op, Val **argv, int argc) {
     const char *caller = it->ctx, *err;
+    op = sanskrit_op(op);
     u32 right = 0;
     for (int k = 0; k < K_COUNT; k++) right |= cap_parse_rights(op, k);
     if (!right) deny(it, "no such operation");

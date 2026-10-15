@@ -156,6 +156,43 @@ subset of the holder's; the new capability's parent chain leads back through
 the delegating cell, so revoking the original revokes the copy. The Python
 version has the same syscall and three tests for it.
 
+### संस्कृतलिपि: programming in Sanskrit
+
+Verum Script is a Lisp, so its syntax is only parentheses; every word can be
+Sanskrit. `verum/sanskrit.py` names every special form, builtin, capability
+and operation in Sanskrit, and Devanagari digits read as numbers. The reader
+maps each Sanskrit word to its canonical form while parsing, so a Sanskrit
+program and the same program in English are literally the same program to
+the kernel: same hash, same provenance, same capabilities. Both kernels
+support it; [cells/ganana.sv](cells/ganana.sv) is the word counter in Sanskrit:
+
+```lisp
+(परिभाषा (सन्देशे प्रेषकः विषयः)
+  (अस्तु ((वस्तु (आह्वानम् भाण्डारः "प्राप्" विषयः))
+          (लेखः  (गृहाण वस्तु "data")))
+    (आह्वानम् पटलः "मुद्रय" "शब्दाः" (परिमाणम् (विभज लेखः " ")))))
+```
+
+| Sanskrit | meaning | canonical |
+|---|---|---|
+| परिभाषा | definition | `define` |
+| कार्यम् | work, function | `lambda` |
+| अस्तु | let it be | `let` |
+| यदि / अन्यथा | if / otherwise | `if` / `else` |
+| आह्वानम् | invocation | `call` (the only effect) |
+| सन्देशे | upon a message | `on-message` |
+| भाण्डारः / पटलः / घटिका | storehouse / screen / clock | `store` / `console` / `clock` |
+| प्राप् / स्थापय / अन्विष्य / मुद्रय / प्रेषय | obtain / place / search / print / send | `get` / `put` / `find` / `print` / `send` |
+| योगः वियोगः गुणनम् भागः | sum, difference, product, quotient | `+ - * /` |
+| सूची कोशः वाक्यम् | list, dictionary, sentence | `list` `dict` `str` |
+| प्रत्येकम् चयनम् संकलनम् | each / selection / collection | `map` `filter` `reduce` |
+| सत्यम् असत्यम् शून्यम् | true / false / void | `true` `false` `nil` |
+
+The full table is in `verum/sanskrit.py`. `sanskrit <file.vs>` in the shell
+renders an English program in Sanskrit. Five tests check that the
+vocabulary is total and that Sanskrit and English cells produce identical
+results and provenance.
+
 ### Seats with passphrases, alarms, and background work
 
 `seat bob hunter2` creates a seat that `switch bob hunter2` must unlock;

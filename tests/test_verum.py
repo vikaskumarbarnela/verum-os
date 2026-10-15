@@ -19,6 +19,15 @@ def load(name):
         return f.read()
 
 
+def load_any(name):
+    for ext in (".vs", ".sv"):
+        p = os.path.join(CELLS, name + ext)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as f:
+                return f.read()
+    raise FileNotFoundError(name)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.k = Kernel()                      # in-memory, no persistence
@@ -173,6 +182,60 @@ class TestSeats(Base):
         self.assertTrue(k2.seats["bob"].check("pw"))
         self.assertFalse(k2.seats["bob"].check("nope"))
         self.assertEqual(k2.seats["bob"].caps["console"], self.k.seats["bob"].caps["console"])
+
+
+class TestSanskrit(Base):
+    """संस्कृतलिपि: a Sanskrit program is the same program."""
+
+    def test_vocabulary_is_total(self):
+        from verum import sanskrit
+        for sk, en in sanskrit.BUILTINS.items():
+            self.assertIn(en, vm.BUILTINS, f"{sk} -> {en} is not a builtin")
+        for sk, en in sanskrit.FORMS.items():
+            if en != "else" and en != "on-message":
+                self.assertIn(en, vm.SPECIAL_FORMS, f"{sk} -> {en} is not a special form")
+
+    def test_sanskrit_reads_as_canonical(self):
+        it = vm.Interp(lambda *a: None, 10_000)
+        env = vm.new_env()
+        src = '(परिभाषा (वर्गः क) (गुणनम् क क)) (प्रत्येकम् वर्गः (श्रेणी ४))'
+        r = None
+        for f in vm.parse(src):
+            r = it.eval(f, env)
+        self.assertEqual(r, [0, 1, 4, 9])
+        self.assertEqual(vm.parse('(यदि सत्यम् १० २०)'), [[vm.Symbol("if"), True, 10, 20]])
+        self.assertEqual(vm.parse('(अस्तु ((क ५)) (योगः क १))')[0][0], "let")
+
+    def test_sanskrit_cell_runs_and_matches_english(self):
+        note = self.k.put("note", "एकम् द्वे त्रीणि", ["note"], SHELL, "note")
+        for name in ("ganana", "wordcount"):
+            self.k.spawn(name, self.k.put("code", load_any(name), ["code", name], SHELL, "code"), SHELL)
+            self.k.grant(self.k.shell_caps["store"], SHELL, ["get", "put"], name, "store")
+            self.k.grant(self.k.shell_caps["console"], SHELL, ["print"], name, "console")
+            self.k.send(name, note, SHELL)
+        self.k.run()
+        self.assertEqual(self.k.cells["ganana"].errors, 0)
+        stats = [self.k.store.get(h) for h in self.k.store.find("stats")]
+        self.assertEqual(sorted(o.by for o in stats), ["ganana", "wordcount"])
+        self.assertEqual({o.data["words"] for o in stats}, {3})           # same answer, same provenance model
+        self.assertTrue(any("शब्दाः 3" in l for l in self.lines))
+
+    def test_sanskrit_operation_names(self):
+        src = '(परिभाषा (सन्देशे प्रेषकः विषयः) (आह्वानम् पटलः "मुद्रय" "नमस्ते" विषयः))'
+        self.k.spawn("s", self.k.put("code", src, ["code"], SHELL, "code"), SHELL)
+        self.k.grant(self.k.shell_caps["console"], SHELL, ["print"], "s", "console")
+        self.k.send("s", "लोकः", SHELL)
+        self.k.run()
+        self.assertIn("[s] नमस्ते लोकः", self.lines)
+        self.assertEqual(self.k.cells["s"].errors, 0)
+
+    def test_round_trip_display(self):
+        from verum import sanskrit
+        en = load("wordcount")
+        sk = sanskrit.to_sanskrit(en)
+        self.assertIn("परिभाषा", sk)
+        self.assertIn("आह्वानम् भाण्डारः", sk)
+        self.assertEqual(vm.parse(sk), vm.parse(en))                       # identical programs
 
 
 class TestMalware(Base):

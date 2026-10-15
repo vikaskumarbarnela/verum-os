@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
+from .sanskrit import canonical_symbol
+
 
 class VMError(Exception):
     pass
@@ -109,6 +111,7 @@ def parse(src: str) -> List[Any]:
             raise VMError("unexpected )")
         if t.startswith('"'):
             return t[1:]
+        t = canonical_symbol(t)                 # संस्कृतलिपि: Sanskrit words and digits read as their canonical forms
         if t == "true":
             return True
         if t == "false":

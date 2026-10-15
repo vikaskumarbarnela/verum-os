@@ -116,6 +116,7 @@ dl.cmds dd { margin: 0; }
     <li><a href="#usage">12. How to use</a></li>
     <li><a href="#shell">13. Shell reference</a></li>
     <li><a href="#lang">14. Language reference</a></li>
+    <li><a href="#sanskrit">14b. संस्कृतलिपि: Sanskrit</a></li>
     <li><a href="#cells">15. Writing a cell</a></li>
     <li><a href="#compare">16. Python vs bare metal</a></li>
     <li><a href="#limits">17. Limits and next steps</a></li>
@@ -218,18 +219,20 @@ dl.cmds dd { margin: 0; }
 │   ├── store.py                 <span class="d">Obj, Store (content-addressed), Ledger (hash chain, JSONL)</span>
 │   ├── caps.py                  <span class="d">Cap, CapTable: mint / attenuate / revoke / check</span>
 │   ├── vm.py                    <span class="d">Verum Script: tokenizer, parser, Interp, builtins, budgets</span>
+│   ├── sanskrit.py              <span class="d">संस्कृतलिपि: Sanskrit names for every form, builtin, capability and operation</span>
 │   ├── kernel.py                <span class="d">Kernel: seats, cells, grant/link/send/delegate, syscall gate, scheduler, replay, fork</span>
 │   └── shell.py                 <span class="d">Shell: intent commands, consent display, REPL</span>
 │
 ├── cells\                       <span class="d">cell programs in Verum Script (.vs)</span>
 │   ├── wordcount.vs             <span class="d">note hash → stats object, with provenance</span>
 │   ├── shout.vs                 <span class="d">upper-case a note, forward hash to `next`</span>
+│   ├── ganana.sv                <span class="d">the word counter written in Sanskrit (गणना)</span>
 │   └── malware.vs               <span class="d">hostile cell: five attacks, all contained</span>
 │
 ├── .github\workflows\ci.yml   <span class="d">CI: unit tests, short fuzz, demo; bare-metal build with clang/nasm/lld</span>
 ├── tests\
 │   ├── __init__.py
-│   ├── test_verum.py            <span class="d">24 tests: store, caps, delegation, seats, malware, workflow, time travel, VM</span>
+│   ├── test_verum.py            <span class="d">29 tests: store, caps, delegation, seats, Sanskrit, malware, workflow, time travel, VM</span>
 │   └── fuzz.py                  <span class="d">random worlds vs. three invariants: containment, authority, integrity</span>
 │
 ├── state\                       <span class="d">created on first run: ledger.jsonl (the whole system)</span>
@@ -792,6 +795,53 @@ nil? number? string? list? dict?</code></pre>
 </div>
 </div>
 
+<h2 id="sanskrit">14b. संस्कृतलिपि: programming in Sanskrit</h2>
+<p>Verum Script is a Lisp. Its syntax is nothing but parentheses, and everything inside them is a word, so the language can be given a second vocabulary without touching the evaluator. <code>verum/sanskrit.py</code> names every special form, builtin, standard capability label and operation in Sanskrit; the reader (<code>vm.parse</code> in Python, <code>read_form</code> in C) maps each Sanskrit symbol to its canonical form as it is read, and Devanagari digits (०–९) become numbers. Operation strings inside <code>(call …)</code> are mapped at the syscall gate.</p>
+<p>The consequence is exact: a program written in Sanskrit and the same program written in English parse to the same forms, so they have the same behaviour, the same hash in the store, the same provenance and the same capability needs. <code>cells/ganana.sv</code> is the word counter in Sanskrit; the test suite runs it beside <code>wordcount.vs</code> and checks that both produce the same <code>stats</code>.</p>
+<div class="two">
+<div>
+<h4>Forms</h4>
+<pre><code>परिभाषा   define      कार्यम्   lambda
+अस्तु     let         यदि       if
+विकल्पः    cond        अन्यथा    else
+क्रमेण     do          च / वा    and / or
+उद्धृतम्   quote       आह्वानम्  call
+सन्देशे    on-message
+सत्यम् असत्यम् शून्यम्   true false nil</code></pre>
+<h4>Names and operations</h4>
+<pre><code>भाण्डारः store   पटलः console   घटिका clock
+यन्त्रम् kernel   अग्रिमः next
+प्रेषकः from     विषयः body
+"प्राप्" get  "स्थापय" put  "अन्विष्य" find
+"मुद्रय" print  "प्रेषय" send  "समर्पय" delegate
+"अधुना" now   "वंशः" lineage  "कोष्ठाः" cells</code></pre>
+</div>
+<div>
+<h4>Builtins</h4>
+<pre><code>योगः वियोगः गुणनम् भागः शेषफलम्     + - * / mod
+समम् न्यूनम् अधिकम् न्यूनसमम् अधिकसमम्  = &lt; &gt; &lt;= &gt;=
+न                                 not
+सूची प्रथमः शेषः स्थानम् परिमाणम्     list head tail nth len
+योजय पुरतः श्रेणी विपर्ययः क्रमय      append cons range reverse sort
+कोशः गृहाण कुञ्चिकाः संयोजय          dict get keys assoc
+वाक्यम् विभज संयुज बृहत् लघु          str split join upper lower
+अन्तर्गतम् खण्डः दोषः                contains slice error
+प्रत्येकम् चयनम् संकलनम्              map filter reduce</code></pre>
+<h4>Example: गणना (word counting)</h4>
+<pre><code>(परिभाषा (शब्दगणना वाक्यम्)
+  (परिमाणम् (विभज वाक्यम् " ")))
+
+(परिभाषा (सन्देशे प्रेषकः विषयः)
+  (अस्तु ((वस्तु (आह्वानम् भाण्डारः "प्राप्" विषयः))
+          (लेखः  (गृहाण वस्तु "data")))
+    (आह्वानम् पटलः "मुद्रय" "शब्दाः" (शब्दगणना लेखः))
+    (आह्वानम् भाण्डारः "स्थापय" "stats"
+          (कोशः "words" (शब्दगणना लेखः))
+          (सूची "stats") (सूची (गृहाण वस्तु "hash")))))</code></pre>
+</div>
+</div>
+<p>In the hosted shell, <code>sanskrit &lt;file.vs&gt;</code> renders an English program in Sanskrit, and <code>code name cells/ganana.sv</code> loads a Sanskrit one. On bare metal the Sanskrit cell is embedded in <code>cells.c</code> and runs the same way; the VGA text mode cannot draw Devanagari, so Sanskrit source shows as replacement characters on screen there, while its behaviour is unchanged.</p>
+
 <!-- ============================================================ 15 -->
 <h2 id="cells">15. Writing a cell</h2>
 <p>A cell is a code object whose top level defines <code>on-message</code>. The handler receives the sender's name and the message body. Capabilities are plain names in the environment, bound by <code>grant</code> and <code>link</code>; the names the code uses must match the labels the shell binds.</p>
@@ -826,6 +876,7 @@ nil? number? string? list? dict?</code></pre>
 <tr><td>Humans</td><td>seats with optional passphrases, audited logins</td><td>seats with optional passphrases, audited logins</td></tr>
 <tr><td>Timers</td><td>—</td><td>alarms (clock → cell every N s), background execution while idle, background log</td></tr>
 <tr><td>Delegation</td><td><code>delegate</code> syscall (3 tests)</td><td><code>delegate</code> syscall, <code>deleg</code> demo cell</td></tr>
+<tr><td>Sanskrit (संस्कृतलिपि)</td><td>reader + op aliases, <code>sanskrit</code> renderer, 5 tests</td><td>reader + op aliases, <code>ganana</code> cell</td></tr>
 <tr><td>UI</td><td>plain REPL</td><td>status bar + <code>dash</code> panel + <code>history</code></td></tr>
 <tr><td>Code objects</td><td>loaded from <code>.vs</code> files by the shell</td><td>embedded in the image (<code>cells.c</code>)</td></tr>
 <tr><td>Numbers</td><td>int and float</td><td>int only</td></tr>
@@ -836,7 +887,7 @@ nil? number? string? list? dict?</code></pre>
 <tr><td>Limits</td><td>unbounded tables</td><td>512 objects · 256 caps · 12 cells · 8 seats · 2048 ledger entries · 16-message inboxes · 4 MiB ledger + 4 MiB attic</td></tr>
 <tr><td>Console / input</td><td>stdout / <code>input()</code></td><td>VGA text at 0xB8000 / interrupt-driven PS/2 keyboard</td></tr>
 <tr><td>Tokens</td><td><code>secrets.token_hex(16)</code></td><td>SHA-256(rdtsc, heap, counter)</td></tr>
-<tr><td>Tests</td><td>24 unit tests + fuzzer (3 invariants), CI on every push</td><td><code>build.py test</code>: work → reboot → rewind → reboot → restore → seats → login → delegate → preempt → alarm/bg → trap, with screen dumps</td></tr>
+<tr><td>Tests</td><td>29 unit tests + fuzzer (3 invariants), CI on every push</td><td><code>build.py test</code>: work → reboot → rewind → reboot → restore → seats → login → delegate → preempt → alarm/bg → trap, with screen dumps</td></tr>
 </tbody></table></div>
 
 <!-- ============================================================ 17 -->

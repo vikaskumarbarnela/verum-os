@@ -138,6 +138,8 @@ SCRIPT = [
     "@dump preempt",
     "cells",
     "@dump preempt2",
+    "spawn g ganana", "grant g store get,put", "grant g console print", "send g @note", "run", "find stats",
+    "@dump sanskrit",
     "alarm e 1 \"tick\"", "alarms", "bg on",
     "@wait 3.5",
     "log", "alarms", "bg off", "unalarm 0",

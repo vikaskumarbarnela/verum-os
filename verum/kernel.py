@@ -24,7 +24,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .caps import Cap, CapError, CapTable, RIGHTS
 from .store import Ledger, Obj, Store
-from . import vm
+from . import sanskrit, vm
 
 
 DEFAULT_FUEL = 50_000
@@ -303,6 +303,7 @@ class Kernel:
         return syscall
 
     def syscall(self, caller: str, token: str, op: str, args: list) -> Any:
+        op = sanskrit.canonical_op(op)                 # "प्राप्" is "get", etc.
         cap = self.caps.check(token, caller, op)       # kind-agnostic right check
         kind = cap.kind
         if op == "delegate":
