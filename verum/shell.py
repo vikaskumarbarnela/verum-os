@@ -12,7 +12,7 @@ import shlex
 import sys
 from typing import List, Optional
 
-from . import sanskrit, translit, vm
+from . import bytecode, sanskrit, translit, vm
 from .caps import CapError
 from .kernel import SHELL, Kernel, KernelError
 
@@ -298,10 +298,16 @@ class Shell:
             except (CapError, KernelError) as e:
                 raise vm.VMError(f"denied: {e}")
 
-        it = vm.Interp(syscall, 200_000)
-        result = None
-        for form in vm.parse(expr):
-            result = it.eval(form, env)
+        if self.k.engine == "bytecode":
+            positions = {}
+            forms = vm.parse(expr, positions)
+            it = bytecode.VM(syscall, 200_000, env.vars)
+            result = it.run_module(bytecode.Compiler(positions).compile_module(forms))
+        else:
+            it = vm.Interp(syscall, 200_000)
+            result = None
+            for form in vm.parse(expr):
+                result = it.eval(form, env)
         self.out(f"=> {vm.show(result)}")
         if used:
             self.out(f"   (capabilities used: {', '.join(used)}; fuel {it.used})")

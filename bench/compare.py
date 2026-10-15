@@ -25,14 +25,22 @@ from verum import vm                     # noqa: E402
 import primes                            # noqa: E402  (bench/primes.py)
 
 
-def measure(fn):
+def measure(make):
+    """`make()` returns a fresh zero-argument runnable. Time and memory are measured in separate runs:
+    tracemalloc slows Python several-fold, so timing under it would be meaningless."""
+    best = None
+    for _ in range(3):
+        fn = make()
+        t0 = time.perf_counter()
+        result = fn()
+        dt = time.perf_counter() - t0
+        best = dt if best is None else min(best, dt)
+    fn = make()
     tracemalloc.start()
-    t0 = time.perf_counter()
-    result = fn()
-    dt = time.perf_counter() - t0
+    fn()
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    return result, dt, peak
+    return result, best, peak
 
 
 def src_stats(path: str) -> tuple[int, int, int]:
@@ -64,8 +72,8 @@ def hosted_cell(limit: int):
 
 
 def main(limit: int) -> None:
-    (count, total), t_py, m_py = measure(lambda: primes.main(limit))
-    (out, fuel), t_vm, m_vm = measure(hosted_cell(limit))
+    (count, total), t_py, m_py = measure(lambda: (lambda: primes.main(limit)))
+    (out, fuel), t_vm, m_vm = measure(lambda: hosted_cell(limit))
     words = [w for w in out.split() if w.isdigit()]
     assert words[1:] == [str(count), str(total)], f"Sanskrit cell disagrees: {out} vs {count} {total}"
 

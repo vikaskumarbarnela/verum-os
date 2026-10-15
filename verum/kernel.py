@@ -24,7 +24,9 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .caps import Cap, CapError, CapTable, RIGHTS
 from .store import Ledger, Obj, Store
-from . import sanskrit, vm
+from . import bytecode, sanskrit, vm
+
+ENGINES = ("bytecode", "tree")            # S2b bytecode VM is the default; the tree-walker stays as the oracle
 
 
 DEFAULT_FUEL = 50_000
@@ -66,7 +68,11 @@ def _hash_secret(salt: str, passphrase: str) -> str:
 
 
 class Kernel:
-    def __init__(self, state_dir: Optional[str] = None, console: Optional[Callable[[str], None]] = None) -> None:
+    def __init__(self, state_dir: Optional[str] = None, console: Optional[Callable[[str], None]] = None,
+                 engine: str = "bytecode") -> None:
+        if engine not in ENGINES:
+            raise KernelError(f"unknown engine {engine!r}")
+        self.engine = engine
         self.state_dir = state_dir
         self.store = Store()
         self.caps = CapTable()
@@ -226,7 +232,13 @@ class Kernel:
         self.cells[name] = cell
         # Module load has no capabilities bound yet: it can only define functions.
         try:
-            vm.load_module(code.data, env, self._make_syscall(cell), fuel)
+            if self.engine == "bytecode":
+                positions: Dict[int, int] = {}
+                forms = vm.parse(code.data, positions)
+                module = bytecode.Compiler(positions).compile_module(forms)
+                bytecode.VM(self._make_syscall(cell), fuel, env.vars).run_module(module)
+            else:
+                vm.load_module(code.data, env, self._make_syscall(cell), fuel)
         except vm.VMError as e:
             del self.cells[name]
             raise KernelError(f"spawn: cell code failed to load: {e}")
@@ -381,10 +393,15 @@ class Kernel:
 
     def _run_cell(self, cell: Cell, sender: str, body: Any) -> None:
         handler = cell.env.vars.get("on-message")
-        interp = vm.Interp(self._make_syscall(cell), cell.fuel)
+        if self.engine == "bytecode":
+            interp = bytecode.VM(self._make_syscall(cell), cell.fuel, cell.env.vars)
+            is_fn = isinstance(handler, bytecode.Closure)
+        else:
+            interp = vm.Interp(self._make_syscall(cell), cell.fuel)
+            is_fn = isinstance(handler, vm.Closure)
         ok, err = True, None
         try:
-            if not isinstance(handler, vm.Closure):
+            if not is_fn:
                 raise vm.VMError("cell defines no (on-message from body)")
             interp.apply(handler, [sender, body])
         except vm.VMError as e:
@@ -407,6 +424,7 @@ class Kernel:
         if not 0 < upto_seq <= len(self.ledger.entries):
             raise KernelError(f"seq must be in 1..{len(self.ledger.entries)}")
         k = Kernel.__new__(Kernel)
+        k.engine = self.engine
         k.state_dir = state_dir
         k.store, k.caps, k.cells, k.tick = Store(), CapTable(), {}, 0
         k.seats, k.me = {}, SHELL

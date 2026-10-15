@@ -88,8 +88,21 @@ def tokenize(src: str) -> List[str]:
     return tokens
 
 
-def parse(src: str) -> List[Any]:
-    tokens = tokenize(src)
+def tokenize_lines(src: str) -> List[tuple]:
+    """Like tokenize, but each token comes with its 1-based line number (for error positions)."""
+    out: List[tuple] = []
+    line = 1
+    for raw_line in src.split("\n"):
+        for t in tokenize(raw_line):
+            out.append((t, line))
+        line += 1
+    return out
+
+
+def parse(src: str, positions: Optional[Dict[int, int]] = None) -> List[Any]:
+    """Read all top-level forms. If `positions` is given, it is filled with id(form) -> line
+    for every list and symbol, so a compiler can report where an error came from."""
+    tokens = tokenize_lines(src)
     forms = []
     pos = 0
 
@@ -97,15 +110,17 @@ def parse(src: str) -> List[Any]:
         nonlocal pos
         if pos >= len(tokens):
             raise VMError("unexpected end of input")
-        t = tokens[pos]
+        t, line = tokens[pos]
         pos += 1
         if t == "(":
             lst = []
-            while pos < len(tokens) and tokens[pos] != ")":
+            while pos < len(tokens) and tokens[pos][0] != ")":
                 lst.append(read())
             if pos >= len(tokens):
                 raise VMError("missing )")
             pos += 1
+            if positions is not None:
+                positions[id(lst)] = line
             return lst
         if t == ")":
             raise VMError("unexpected )")
@@ -126,7 +141,10 @@ def parse(src: str) -> List[Any]:
             return float(t)
         except ValueError:
             pass
-        return Symbol(t)
+        sym = Symbol(t)
+        if positions is not None:
+            positions[id(sym)] = line
+        return sym
 
     while pos < len(tokens):
         forms.append(read())
