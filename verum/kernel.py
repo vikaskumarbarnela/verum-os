@@ -24,7 +24,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .caps import Cap, CapError, CapTable, RIGHTS
 from .store import Ledger, Obj, Store
-from . import bytecode, sanskrit, vm
+from . import bytecode, debug, sanskrit, vm
 
 ENGINES = ("bytecode", "tree")            # S2b bytecode VM is the default; the tree-walker stays as the oracle
 
@@ -73,6 +73,7 @@ class Kernel:
         if engine not in ENGINES:
             raise KernelError(f"unknown engine {engine!r}")
         self.engine = engine
+        self.debugger = debug.Debugger()
         self.state_dir = state_dir
         self.store = Store()
         self.caps = CapTable()
@@ -396,6 +397,8 @@ class Kernel:
         if self.engine == "bytecode":
             interp = bytecode.VM(self._make_syscall(cell), cell.fuel, cell.env.vars)
             is_fn = isinstance(handler, bytecode.Closure)
+            if self.debugger.wants(cell.id):
+                self.debugger.attach(interp, cell.id)
         else:
             interp = vm.Interp(self._make_syscall(cell), cell.fuel)
             is_fn = isinstance(handler, vm.Closure)
@@ -407,9 +410,19 @@ class Kernel:
         except vm.VMError as e:
             ok, err = False, str(e)
             self.emit(f"[kernel] cell {cell.id} stopped: {err}")
+            if " at line " in err:                      # show the offending source line
+                try:
+                    n = int(err.rsplit(" at line ", 1)[1].split()[0])
+                    text = debug.source_line(self.store.get(cell.code).data, n)
+                    if text:
+                        self.emit(f"         line {n}: {text}")
+                except (ValueError, AttributeError):
+                    pass
         except RecursionError:
             ok, err = False, "recursion limit"
             self.emit(f"[kernel] cell {cell.id} stopped: {err}")
+        finally:
+            self.debugger.finish(cell.id)
         cell.runs += 1
         cell.fuel_used += interp.used
         if not ok:
@@ -425,6 +438,7 @@ class Kernel:
             raise KernelError(f"seq must be in 1..{len(self.ledger.entries)}")
         k = Kernel.__new__(Kernel)
         k.engine = self.engine
+        k.debugger = debug.Debugger()
         k.state_dir = state_dir
         k.store, k.caps, k.cells, k.tick = Store(), CapTable(), {}, 0
         k.seats, k.me = {}, SHELL

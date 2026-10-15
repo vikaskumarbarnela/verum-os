@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import os
 import shlex
+import threading
 import sys
 from typing import List, Optional
 
-from . import bytecode, sanskrit, translit, vm
+from . import bytecode, debug, sanskrit, translit, vm
 from .caps import CapError
 from .kernel import SHELL, Kernel, KernelError
 
@@ -73,6 +74,9 @@ VERUM shell - intents you can state
   seat <name> [passphrase]       another human, with no capabilities (grant to them like a cell)
   switch <name> [passphrase]     take that seat; every intent is then checked against its caps
   seats / whoami                 list seats and their capabilities; who is at the keyboard
+  break <cell> <line>            debugger: pause the cell at that source line on the next run
+  step / continue / inspect / stack / where   while a cell is paused
+  profile on|off|show            deterministic fuel per function (instructions executed)
   lipi on|off                    type Sanskrit on a Latin keyboard (Harvard-Kyoto: paribhASA -> परिभाषा)
   lipi <word>                    show how to type a Sanskrit word;  :word transliterates one word anywhere
   sanskrit <file|code>           render an English Verum Script program in Sanskrit
@@ -241,8 +245,101 @@ class Shell:
         self.out(f"queued for {cell}: {vm.show(body)}")
 
     def cmd_run(self, a, line):
-        ticks = self.k.run(int(a[0]) if a else 100)
+        ticks_wanted = int(a[0]) if a else 100
+        dbg = self.k.debugger
+        if self.k.engine == "bytecode" and (dbg.breakpoints or dbg.stepping or dbg.profile_on):
+            # the scheduler runs on a worker thread so a breakpoint can pause a cell mid-message
+            self._worker = threading.Thread(target=lambda: setattr(self, "_ticks", self.k.run(ticks_wanted)), daemon=True)
+            self._ticks = 0
+            self._worker.start()
+            self._await_pause()
+            return
+        ticks = self.k.run(ticks_wanted)
         self.out(f"ran {ticks} tick(s); now at tick {self.k.tick}")
+
+    # ------------------------------------------------------------------ debugger (D1)
+
+    _worker: Optional[threading.Thread] = None
+
+    def _await_pause(self):
+        dbg = self.k.debugger
+        if dbg.wait_pause(self._worker):
+            p = dbg.paused
+            src = self.k.store.get(self.k.cells[p["cell"]].code).data
+            self.out(f"paused in cell {p['cell']} at line {p['line']} (in {p['code'].name}): {debug.source_line(src, p['line'])}")
+            self.out("   step / continue / inspect / stack / where")
+        else:
+            self.out(f"ran {self._ticks} tick(s); now at tick {self.k.tick}")
+            if dbg.profile_on:
+                self.cmd_profile(["show"], "")
+
+    def _need_paused(self):
+        if not self.k.debugger.paused:
+            raise KernelError("no cell is paused (set a breakpoint with `break <cell> <line>` and `run`)")
+
+    def cmd_break(self, a, line):
+        """break <cell> <line>   - pause the cell when it reaches that source line"""
+        cell, ln = a[0], int(a[1])
+        if cell not in self.k.cells:
+            raise KernelError(f"no cell {cell!r}")
+        self.k.debugger.add_break(cell, ln)
+        src = self.k.store.get(self.k.cells[cell].code).data
+        self.out(f"breakpoint: {cell} line {ln}: {debug.source_line(src, ln)}")
+
+    def cmd_unbreak(self, a, line):
+        self.k.debugger.remove_break(a[0], int(a[1]) if len(a) > 1 else None)
+        self.out("removed")
+
+    def cmd_breaks(self, a, line):
+        for cell, lines in self.k.debugger.breakpoints.items():
+            self.out(f"  {cell}: lines {sorted(lines)}")
+        if not self.k.debugger.breakpoints:
+            self.out("no breakpoints")
+
+    def cmd_step(self, a, line):
+        self._need_paused()
+        self.k.debugger.resume(step=True)
+        self._await_pause()
+
+    def cmd_continue(self, a, line):
+        self._need_paused()
+        self.k.debugger.resume(step=False)
+        self._await_pause()
+
+    def cmd_inspect(self, a, line):
+        self._need_paused()
+        for name, value in self.k.debugger.frame_view():
+            self.out(f"  {name:<16} {vm.show(value)}")
+
+    def cmd_stack(self, a, line):
+        self._need_paused()
+        p = self.k.debugger.paused
+        self.out(f"  operand stack ({len(p['stack'])}): " + ", ".join(vm.show(v) for v in p["stack"][-8:]))
+        self.out(f"  fuel used so far: {p['vm'].used}")
+
+    def cmd_where(self, a, line):
+        self._need_paused()
+        p = self.k.debugger.paused
+        src = self.k.store.get(self.k.cells[p["cell"]].code).data
+        for n in range(max(1, p["line"] - 2), p["line"] + 3):
+            mark = ">>" if n == p["line"] else "  "
+            self.out(f"  {mark} {n:3}: {debug.source_line(src, n)}")
+
+    def cmd_profile(self, a, line):
+        """profile on|off|show   - deterministic fuel per function (instructions executed)"""
+        dbg = self.k.debugger
+        if a and a[0] == "on":
+            dbg.profile_on, dbg.profile = True, {}
+            self.out("profiling on: `run`, then `profile show`")
+        elif a and a[0] == "off":
+            dbg.profile_on = False
+            self.out("profiling off")
+        else:
+            rows = dbg.profile_view()
+            if not rows:
+                self.out("no profile yet (profile on, then run)")
+            for name, n, pct in rows:
+                self.out(f"  {name:<20} {n:>9,} instructions  {pct:5.1f}%")
 
     def cmd_cells(self, a, line):
         if not self.k.cells:

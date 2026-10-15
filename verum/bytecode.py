@@ -33,7 +33,7 @@ OPNAMES = ["CONST", "LOCAL", "SETLOCAL", "GLOBAL", "SETGLOBAL", "JUMP", "JUMPIFN
 
 
 class Code:
-    __slots__ = ("name", "nparams", "nslots", "instrs", "consts", "codes", "lines")
+    __slots__ = ("name", "nparams", "nslots", "instrs", "consts", "codes", "lines", "slotnames")
 
     def __init__(self, name: str, nparams: int) -> None:
         self.name = name
@@ -43,6 +43,7 @@ class Code:
         self.lines: List[int] = []         # source line per instruction
         self.consts: List[Any] = []
         self.codes: List[Code] = []
+        self.slotnames: List[str] = []     # slot -> variable name, for the debugger's `inspect`
 
     def emit(self, op: int, a: Any = 0, b: Any = 0, line: int = 0) -> int:
         self.instrs.append((op, a, b))
@@ -117,6 +118,7 @@ class Scope:
         slot = self.code.nslots
         self.code.nslots += 1
         self.blocks[-1][name] = slot
+        self.code.slotnames.append(name)
         return slot
 
 
@@ -156,7 +158,9 @@ class Compiler:
         return None
 
     def expr(self, x: Any, scope: Scope, code: Code) -> None:
-        ln = self.line(x)
+        ln = self.line(x) or getattr(self, "cur_line", 0)   # atoms inherit the enclosing form's line
+        if isinstance(x, list) and ln:
+            self.cur_line = ln
         if isinstance(x, Symbol):
             r = self.resolve(x, scope)
             if r is None:
@@ -274,7 +278,7 @@ class Compiler:
                 raise VMError("let: bad binding")
             self.expr(binding[1], scope, code)
             slot = scope.declare(binding[0])
-            code.emit(SETLOCAL, 0, slot, ln)
+            code.emit(SETLOCAL, 0, slot, self.line(binding) or ln)   # the binding's own line
         self.body(x, 2, scope, code)
         scope.blocks.pop()
 
@@ -324,6 +328,7 @@ class Compiler:
         inner = Scope(fn, scope)
         for i, p in enumerate(params):
             inner.blocks[0][p] = i
+            fn.slotnames.append(p)
         if prelude is not None:                           # module-level let: bindings become slots of the thunk
             for binding in prelude:
                 if not (isinstance(binding, list) and len(binding) == 2 and isinstance(binding[0], Symbol)):

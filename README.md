@@ -278,6 +278,36 @@ right-hand rows: the Python program can read any file and open any socket
 on the machine; the cell cannot do anything it was not handed, cannot run
 or allocate without limit, and leaves a provable record of what it did.
 
+### The debugger (D1, hosted)
+
+Cells run on the bytecode VM, which carries a source line on every
+instruction and a per-instruction trace hook, so the debugger is a feature
+of the VM rather than a retrofit:
+
+```
+shell> break p 9                 pause cell p when it enters line 9
+shell> run
+paused in cell p at line 9 (in अभाज्यम्?): (च (अधिकम् सङ्ख्या १)
+shell> where                     the surrounding source, with a marker
+shell> inspect                   every variable of the paused frame, by name
+  सङ्ख्या          0
+shell> step                      to the next line, into calls
+shell> continue
+shell> profile on; run; profile show
+  lambda                   6,257 instructions   62.0%
+  विभाजकः?                 2,792 instructions   27.7%
+```
+
+A breakpoint fires when a line is entered, not when a call returns into it.
+`profile` counts instructions per function, which is deterministic: the same
+program and input give the same profile on every run, on any machine.
+Errors now show their line and its text (`unbound symbol nope at line 3`,
+`line 3: (nope)))`). Because the ledger makes every run replayable, a
+breakpoint is reproducible: the same prefix and message pause at the same
+instruction every time. The scheduler runs on a worker thread while a cell is
+paused, so the shell stays responsive. Four tests cover breakpoints,
+stepping, inspection and profiling.
+
 ### Seats with passphrases, alarms, and background work
 
 `seat bob hunter2` creates a seat that `switch bob hunter2` must unlock;

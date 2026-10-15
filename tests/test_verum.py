@@ -278,6 +278,63 @@ class TestLipi(Base):
         self.assertTrue(any("शून्येन भागः" in l for l in self.lines))
 
 
+class TestDebugger(Base):
+    """D1: breakpoints, stepping, inspection and profiling on the bytecode engine."""
+
+    SRC = ('(define (square x)\n'
+           '  (* x x))\n'
+           '(define (on-message from body)\n'
+           '  (let ((a (square body))\n'
+           '        (b (+ body 1)))\n'
+           '    (call console "print" a b)))\n')
+
+    def setUp(self):
+        super().setUp()
+        self.k.spawn("d", self.k.put("code", self.SRC, ["code"], SHELL, "code"), SHELL)
+        self.k.grant(self.k.shell_caps["console"], SHELL, ["print"], "d", "console")
+
+    def test_breakpoint_pauses_and_inspect_shows_slots(self):
+        self.sh.do("break d 5")
+        self.k.send("d", 7, SHELL)
+        self.sh.do("run")
+        self.assertTrue(any("paused in cell d at line 5" in l for l in self.lines), self.lines)
+        self.sh.do("inspect")
+        joined = "\n".join(self.lines)
+        self.assertIn("from", joined)
+        self.assertIn("a                49", joined)          # (square 7) already bound; b not yet
+        self.sh.do("continue")
+        self.assertIn("[d] 49 8", self.lines)
+        self.assertFalse(self.k.debugger.paused)
+
+    def test_step_moves_one_line(self):
+        self.sh.do("break d 4")
+        self.k.send("d", 3, SHELL)
+        self.sh.do("run")
+        self.assertTrue(any("at line 4" in l for l in self.lines))
+        self.sh.do("step")
+        self.assertTrue(any("at line 2" in l for l in self.lines))   # into square
+        self.sh.do("continue")
+        self.assertIn("[d] 9 4", self.lines)
+
+    def test_profile_counts_instructions_per_function(self):
+        self.sh.do("profile on")
+        self.k.send("d", 5, SHELL)
+        self.sh.do("run")
+        prof = self.k.debugger.profile
+        self.assertIn("square", prof)
+        self.assertIn("on-message", prof)
+        self.assertGreater(prof["on-message"], prof["square"])
+
+    def test_error_shows_source_line(self):
+        src = '(define (on-message from body)\n  (+ 1\n     (nope)))\n'
+        self.k.spawn("e", self.k.put("code", src, ["code"], SHELL, "code"), SHELL)
+        self.k.send("e", 1, SHELL)
+        self.k.run()
+        joined = "\n".join(self.lines)
+        self.assertIn("unbound symbol nope at line 3", joined)
+        self.assertIn("line 3: (nope)))", joined)
+
+
 class TestMalware(Base):
     def setUp(self):
         super().setUp()
